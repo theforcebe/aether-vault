@@ -80,9 +80,11 @@ const Sync = (() => {
     return { sha: metaRes.sha, envelope: JSON.parse(text) };
   }
 
-  // what a vault object actually holds, for guard prompts
+  // what a vault object actually holds, for guard prompts.
+  // mycollection is {label, rows} in the store; tolerate a bare array too.
   function counts(v) {
-    const rows = (v && v.mycollection) || [];
+    const mc = v && v.mycollection;
+    const rows = Array.isArray(mc) ? mc : (mc && mc.rows) || [];
     return {
       cards: rows.reduce((s, r) => s + (r.q || 1), 0),
       decks: ((v && v.userdecks) || []).length,

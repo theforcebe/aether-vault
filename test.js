@@ -245,6 +245,14 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   const bigEnv = await Sync.encrypt('Keanen', '1234', big);
   const bigBack = await Sync.decrypt('Keanen', '1234', bigEnv);
   ok(bigBack.rows.length === 20000 && bigBack.rows[19999].n === 'Card Number 19999', 'megabyte-scale vault roundtrips (' + Math.round(bigEnv.ct.length / 1024) + 'KB ciphertext)');
+  const realCounts = Sync.counts(Sync.currentVault());
+  ok(realCounts.cards > 1000 && realCounts.decks >= 7, 'counts reads the real vault shape (' + realCounts.cards + ' cards, ' + realCounts.decks + ' decks)');
+  mem.av_sync_id = JSON.stringify({ name: 'Keanen', pin: '1234', token: 'tok' });
+  try {
+    const dataSignedIn = UI.viewData();
+    ok(typeof dataSignedIn === 'string' && dataSignedIn.includes('sync-push') && dataSignedIn.includes(String(realCounts.cards)), 'Data page renders signed-in with counts');
+  } catch (e) { ok(false, 'Data page signed-in threw: ' + e.message); }
+  delete mem.av_sync_id;
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
