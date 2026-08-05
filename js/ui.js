@@ -33,6 +33,13 @@ const UI = (() => {
     setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 400); }, 3200);
   }
 
+  function dl(filename, text) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = filename;
+    a.click();
+  }
+
   function hoverPreview() {
     let tip = $('#hover-card');
     if (!tip) { tip = document.createElement('div'); tip.id = 'hover-card'; document.body.appendChild(tip); }
@@ -150,7 +157,7 @@ const UI = (() => {
       '<div class="onboard-grid">' +
       '<label class="onboard-card" for="file-csv"><strong>Upload a ManaBox export</strong><span class="dim">Collection CSV with binders, foils, and exact printings. Parsed locally.</span></label>' +
       '<a class="onboard-card" href="#/import"><strong>Import a decklist</strong><span class="dim">Paste any list. Images and prices load from Scryfall.</span></a>' +
-      '<a class="onboard-card" href="#/decks"><strong>Build a deck</strong><span class="dim">Start from a blank 100 and search any card.</span></a>' +
+      '<a class="onboard-card" href="#/build"><strong>Suggest me a deck</strong><span class="dim">Pick a theme and bracket; get a popular build with a costed buy list.</span></a>' +
       (Store.seedAvailable() && !Store.state.seeded
         ? '<button class="onboard-card" id="seed-import"><strong>Load the built-in vault</strong><span class="dim">One-time import of Keanen’s collection and seven decks, as editable copies.</span></button>'
         : '') +
@@ -464,8 +471,80 @@ const UI = (() => {
       '<textarea id="imp-text" rows="12" placeholder="1 Atraxa, Grand Unifier&#10;1 Sol Ring&#10;..."></textarea>' +
       '<div class="row"><input id="imp-name" placeholder="Deck name">' +
       '<button class="btn primary" id="imp-go">Import as editable deck</button>' +
-      '<button class="btn" id="imp-go-ro">Import read-only</button></div>' +
-      '<div id="imp-status" class="dim"></div>';
+      '<button class="btn" id="imp-go-ro">Import read-only</button>' +
+      '<button class="btn" id="imp-compare"' + (Store.hasCollection() ? '' : ' disabled title="Upload a collection first"') + '>Compare vs my collection</button></div>' +
+      '<p class="dim">Compare shows what you own and what you would need to buy, with a downloadable buy list. It never adds anything to your collection.</p>' +
+      '<div id="imp-status" class="dim"></div><div id="compare-slot"></div>';
+  }
+
+  function compareHtml(cmp, name) {
+    const need = cmp.rows.filter((r) => r.need > 0);
+    const have = cmp.rows.filter((r) => r.need === 0);
+    const row = (r) => '<div class="cmp-row" data-hover-sid="' + (r.sid || '') + '">' +
+      '<span class="cmp-n">' + esc(r.n) + '</span>' +
+      '<span class="dim">' + (r.need > 0 ? 'need ' + r.need + (r.have ? ', have ' + r.have : '') : 'have ' + r.q) + '</span>' +
+      '<span class="ra ' + (r.need > 0 ? 'list-p' : 'dim') + '">' + (r.need > 0 ? money(r.unit * r.need) : '') + '</span></div>';
+    return '<section class="panel"><div class="panel-h">' + esc(name) + ': collection check</div>' +
+      '<div class="stat-row" style="margin-bottom:12px">' +
+      '<div class="stat-tile"><div class="stat-label">You own</div><div class="stat-value">' + cmp.ownedCount + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">To buy</div><div class="stat-value">' + cmp.needCount + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Cost to complete</div><div class="stat-value">' + money(cmp.buyCost) + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Coverage</div><div class="stat-value">' + (cmp.ownedCount + cmp.needCount ? Math.round(cmp.ownedCount / (cmp.ownedCount + cmp.needCount) * 100) : 0) + '%</div></div></div>' +
+      '<div class="page-actions"><button class="btn primary" id="cmp-buylist">Download buy list .txt</button></div>' +
+      (need.length ? '<div class="panel-h sub">To buy (' + need.length + ')</div>' + need.map(row).join('') : '') +
+      (have.length ? '<div class="panel-h sub">You own (' + have.length + ')</div>' + have.map(row).join('') : '') +
+      '</section>';
+  }
+
+  function viewBuild(params) {
+    const t = Builder.templates();
+    if (!t.archetypes.length) return '<p class="dim">Deck templates failed to load.</p>';
+    const archKey = params.arch || t.archetypes[0].key;
+    const a = Builder.archetype(archKey) || t.archetypes[0];
+    const cmdIdx = Math.min(parseInt(params.cmd || '0', 10), a.commanders.length - 1);
+    const cmd = a.commanders[cmdIdx];
+    const bracket = parseInt(params.bracket || '3', 10);
+    return '<div class="page-h"><h1>Deck builder</h1></div>' +
+      '<p class="dim">Builds start from the most popular list for a theme (EDHREC average decks, verified against Scryfall), get shaped to your bracket, then checked against your collection. Basic lands count as owned.</p>' +
+      '<section class="panel"><div class="build-controls">' +
+      '<input id="bld-theme" placeholder="Describe a theme: sacrifice, dragons, lifegain..." value="">' +
+      '<select id="bld-arch">' + t.archetypes.map((x) => '<option value="' + x.key + '" ' + (x.key === a.key ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select>' +
+      '<select id="bld-cmd">' + a.commanders.map((c, i) => '<option value="' + i + '" ' + (i === cmdIdx ? 'selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>' +
+      '<select id="bld-bracket"><option value="2" ' + (bracket === 2 ? 'selected' : '') + '>Bracket 2: Core</option><option value="3" ' + (bracket === 3 ? 'selected' : '') + '>Bracket 3: Upgraded</option><option value="4" ' + (bracket === 4 ? 'selected' : '') + '>Bracket 4: Optimized</option></select>' +
+      '<label class="chk"><input type="checkbox" id="bld-own" ' + (Store.hasCollection() ? 'checked' : 'disabled') + '> Use my collection</label>' +
+      '<label class="chk"><input type="checkbox" id="bld-sub" ' + (Store.hasCollection() ? '' : 'disabled') + '> Substitute owned equivalents</label>' +
+      '<button class="btn primary" id="bld-go">Build</button></div>' +
+      '<div class="tile-sub" style="margin-top:10px">' + cardImgHtml(cmd.name, cmd.sid, 'tile-art bld-art') + '<span>Commander: <strong>' + esc(cmd.name) + '</strong> ' + pips(cmd.ci) + (cmd.usd ? ' <span class="dim">' + money(cmd.usd) + '</span>' : '') + '</span></div>' +
+      '<div id="bld-status" class="dim"></div></section>' +
+      '<div id="bld-result"></div>';
+  }
+
+  function buildResultHtml(res) {
+    const s = res.stats;
+    const groups = {};
+    for (const c of res.cards) (groups[c.t === 'Land' ? 'Lands' : c.t + 's'] ||= []).push(c);
+    const badge = (c) => c.status === 'owned' ? '<span class="badge own">owned</span>'
+      : c.status === 'sub' ? '<span class="badge moved" title="Substituted for ' + esc(c.subFor || '') + '">sub</span>'
+      : c.status === 'basic' ? '<span class="badge">basic</span>'
+      : '<span class="badge buy">' + money((c.usd || 0)) + '</span>';
+    let cols = '';
+    for (const [g, list] of Object.entries(groups)) {
+      list.sort((a, b) => (a.mv || 0) - (b.mv || 0));
+      cols += '<div class="d-col"><div class="d-col-h">' + g + ' <span class="dim">' + list.reduce((x, c) => x + c.q, 0) + '</span></div>' +
+        list.map((c) => '<div class="d-row" data-hover-sid="' + (c.sid || '') + '"><span class="d-q">' + c.q + '</span>' +
+          '<span class="d-n">' + esc(c.n) + (c.subFor ? ' <span class="dim">for ' + esc(c.subFor) + '</span>' : '') + '</span>' + badge(c) + '</div>').join('') + '</div>';
+    }
+    return '<section class="panel"><div class="panel-h">' + esc(res.archetype) + ' with ' + esc(res.commander.name) + ' <span class="badge gc">Bracket ' + s.bracket + '</span></div>' +
+      '<div class="stat-row" style="margin-bottom:12px">' +
+      '<div class="stat-tile"><div class="stat-label">Full deck value</div><div class="stat-value">' + money(s.totalValue) + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Cost to complete</div><div class="stat-value">' + money(s.buyCost) + '</div><div class="dim">' + s.buyCount + ' cards' + (s.commanderOwned ? '' : ' + commander') + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">From your collection</div><div class="stat-value">' + (s.ownedCount + s.subCount) + '</div><div class="dim">' + s.subCount + ' substitutions, ' + s.basicCount + ' basics assumed</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Game Changers kept</div><div class="stat-value">' + s.gcs.length + '</div><div class="dim">' + (s.gcs.join(', ') || 'none') + '</div></div></div>' +
+      '<div class="page-actions"><button class="btn primary" id="bld-save">Save as my deck</button>' +
+      '<button class="btn" id="bld-dl-deck">Decklist .txt</button>' +
+      '<button class="btn" id="bld-dl-buy">Buy list .txt</button></div>' +
+      (res.notes.length ? '<div class="panel-h sub">Bracket adjustments</div><ul class="why">' + res.notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') +
+      '</section><div class="deck-cols">' + cols + '</div>';
   }
 
   function viewGuide() {
@@ -658,6 +737,91 @@ const UI = (() => {
       }
     }
 
+    // builder page
+    if (route === '#/build') {
+      const themeInput = $('#bld-theme', root);
+      if (themeInput) themeInput.addEventListener('change', () => {
+        const k = Builder.matchTheme(themeInput.value);
+        if (k) App.go('#/build', { ...params, arch: k, cmd: '0' });
+        else toast('No matching theme. Try: tokens, sacrifice, dragons, spellslinger, lifegain...');
+      });
+      const archSel = $('#bld-arch', root);
+      if (archSel) archSel.addEventListener('change', () => App.go('#/build', { ...params, arch: archSel.value, cmd: '0' }));
+      const cmdSel = $('#bld-cmd', root);
+      if (cmdSel) cmdSel.addEventListener('change', () => App.go('#/build', { ...params, cmd: cmdSel.value }));
+      const brSel = $('#bld-bracket', root);
+      if (brSel) brSel.addEventListener('change', () => App.go('#/build', { ...params, bracket: brSel.value }));
+      const goB = $('#bld-go', root);
+      if (goB) goB.addEventListener('click', async () => {
+        const status = $('#bld-status', root);
+        const useCollection = $('#bld-own', root).checked;
+        const substitute = $('#bld-sub', root).checked;
+        let ownedFacts = null;
+        goB.disabled = true;
+        try {
+          if (substitute && useCollection) {
+            status.textContent = 'Scanning your collection for role matches...';
+            ownedFacts = await Builder.scanCollection((d, t) => { status.textContent = 'Scanning ' + d + ' of ' + t + ' owned cards...'; });
+          }
+          const res = Builder.build({
+            archKey: archSel.value, cmdIdx: parseInt(cmdSel.value, 10),
+            bracket: parseInt(brSel.value, 10), useCollection, substitute, ownedFacts,
+          });
+          status.textContent = '';
+          if (res.error) { status.textContent = res.error; }
+          else {
+            window.__lastBuild = res;
+            $('#bld-result').innerHTML = buildResultHtml(res);
+            const save = $('#bld-save');
+            if (save) save.addEventListener('click', () => {
+              const d = Store.createUserDeck(res.archetype + ' (' + res.commander.name.split(',')[0] + ')',
+                [{ n: res.commander.name, q: 1, sid: res.commander.sid }].concat(res.cards.map((c) => ({ n: c.n, q: c.q, sid: c.sid }))),
+                res.commander.name);
+              toast('Saved. Remember to back up from the Data page.');
+              location.hash = '#/mydeck/' + d.id;
+            });
+            const d1 = $('#bld-dl-deck');
+            if (d1) d1.addEventListener('click', () => dl('decklist.txt', Builder.decklistText(res)));
+            const d2 = $('#bld-dl-buy');
+            if (d2) d2.addEventListener('click', () => dl('buylist.txt', Builder.buylistText(res)));
+            $('#bld-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        } catch (e) {
+          status.textContent = 'Build hit an error reaching Scryfall. Try again.';
+        }
+        goB.disabled = false;
+      });
+    }
+
+    const cmpBtn = $('#imp-compare', root);
+    if (cmpBtn) cmpBtn.addEventListener('click', async () => {
+      const text = $('#imp-text', root).value;
+      const status = $('#imp-status', root);
+      const cards = [];
+      for (const l of text.split('\n').map((x) => x.trim()).filter(Boolean)) {
+        const m = l.match(/^(\d+)x?\s+(.+)$/);
+        const q = m ? parseInt(m[1], 10) : 1;
+        const n = (m ? m[2] : l).replace(/\s*\((.*?)\)\s*[\w-]*\s*$/, '').trim();
+        if (n) cards.push({ n, q });
+      }
+      if (!cards.length) { status.textContent = 'Nothing to compare.'; return; }
+      status.textContent = 'Pricing ' + cards.length + ' cards...';
+      const need = cards.filter((c) => !Store.sidFor(c.n)).map((c) => c.n);
+      if (need.length) {
+        const res = await Scry.resolveNames(need, (d, t) => { status.textContent = 'Resolving ' + d + ' of ' + t + '...'; });
+        Store.cacheResolved(res.found);
+        if (res.missing.length) status.textContent = 'Not found: ' + res.missing.join(', ');
+        else status.textContent = '';
+      } else status.textContent = '';
+      for (const c of cards) c.sid = Store.sidFor(c.n);
+      const cmp = Builder.compare(cards);
+      const name = $('#imp-name', root).value.trim() || 'Pasted list';
+      $('#compare-slot').innerHTML = compareHtml(cmp, name);
+      const bl = $('#cmp-buylist');
+      if (bl) bl.addEventListener('click', () => dl('buylist.txt', Builder.compareBuylistText(cmp)));
+      $('#compare-slot').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
     const doImport = async (editable) => {
       const text = $('#imp-text', root).value;
       const name = $('#imp-name', root).value.trim() || 'Imported deck';
@@ -756,5 +920,5 @@ const UI = (() => {
     App.refresh();
   }
 
-  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, wire, hoverPreview, refreshPrices, toast };
+  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, wire, hoverPreview, refreshPrices, toast };
 })();

@@ -146,23 +146,27 @@ const Rules = (() => {
   ];
 
   // ---------- role detectors ----------
+  // Reminder text in parentheses is stripped first: Treasure reminder text says
+  // "add one mana" and would otherwise classify every treasure-maker as ramp.
+  const O = (c) => (c.o || '').replace(/\([^)]*\)/g, '');
   const isLand = (c) => c.t.includes('land');
   const isRamp = (c) => !isLand(c) && (
-    /add \{|adds? (one|two) mana/.test(c.o) && !c.t.includes('instant') && !c.t.includes('sorcery') ||
-    /search your librar[^.]*land[^.]*battlefield/.test(c.o) ||
-    /spells? you cast cost \{?\d\}? less/.test(c.o)
+    /add \{|adds? (one|two) mana/.test(O(c)) && !c.t.includes('instant') && !c.t.includes('sorcery') ||
+    /search your librar[^.]*land[^.]*battlefield/.test(O(c)) ||
+    /spells? you cast cost \{?\d\}? less/.test(O(c))
   );
-  const isDraw = (c) => /draw (a card|two|three|four|x|cards)/.test(c.o) && !/opponent draws/.test(c.o.split('draw')[0] || '');
-  const isRemoval = (c) => !isLand(c) && (
-    /destroy target|exile target (creature|artifact|enchantment|planeswalker|permanent|nonland)/.test(c.o) ||
-    /counter target [^.]*spell/.test(c.o) ||
-    /deals? \d+ damage to (any target|target creature)/.test(c.o) ||
-    /(target|each) (player|opponent) sacrifices a creature/.test(c.o)
-  );
-  const isWipe = (c) => /destroy all|exile all (creatures|nonland)|all creatures get -|each creature|deals? \d+ damage to each creature/.test(c.o) &&
-    (c.t.includes('sorcery') || c.t.includes('instant') || /when [^.]*enters/.test(c.o));
+  const isDraw = (c) => { const o = O(c); return /draw (a card|two|three|four|x|cards)/.test(o) && !/opponent draws/.test(o.split('draw')[0] || ''); };
+  const isRemoval = (c) => !isLand(c) && (() => { const o = O(c); return (
+    /destroy target|exile target (creature|artifact|enchantment|planeswalker|permanent|nonland)/.test(o) ||
+    /counter target [^.]*spell/.test(o) ||
+    /deals? \d+ damage to (any target|target creature)/.test(o) ||
+    /return target [^.]*(creature|permanent|nonland)[^.]*(owner|library)/.test(o) ||
+    /(target|each) (player|opponent) sacrifices a creature/.test(o)
+  ); })();
+  const isWipe = (c) => { const o = O(c); return (/destroy all|exile all (creatures|nonland)|all creatures get -|each creature|deals? \d+ damage to each creature|return (all|each) [^.]*creatures?[^.]*owners/.test(o)) &&
+    (c.t.includes('sorcery') || c.t.includes('instant') || /when [^.]*enters/.test(o)); };
 
-  const genericTutor = (c) => /search your library for a[^.]*card/.test(c.o) && !/land card/.test(c.o);
+  const genericTutor = (c) => { const o = O(c); return /search your library for a[^.]*card/.test(o) && !/land card/.test(o); };
 
   // gap suggestions by need, filtered by color identity at call time
   const GAP_SUGGESTIONS = {

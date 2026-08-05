@@ -1,0 +1,214 @@
+// Aether Vault: the deck builder.
+// Takes a theme, a bracket target, and optionally the user's collection, and turns
+// a harvested popular decklist (EDHREC average deck, Scryfall-verified at bake time)
+// into a personalized build: owned cards marked, role-equivalent owned substitutions,
+// bracket-illegal pieces swapped out, and a costed buy list for the rest.
+
+const Builder = (() => {
+  const T = () => window.VAULT_TEMPLATES || { archetypes: [], pool: {} };
+  const lower = (s) => (s || '').toLowerCase();
+
+  const ALIASES = {
+    tokens: ['token', 'tokens', 'go wide', 'swarm', 'populate'],
+    counters: ['counter', 'counters', '+1/+1', 'proliferate', 'grow'],
+    aristocrats: ['aristocrat', 'aristocrats', 'sacrifice', 'sac', 'death', 'drain'],
+    graveyard: ['graveyard', 'reanimator', 'reanimate', 'mill', 'self-mill', 'recursion', 'dredge'],
+    spells: ['spellslinger', 'spells', 'instants', 'sorceries', 'storm', 'burn', 'izzet'],
+    artifacts: ['artifact', 'artifacts', 'affinity', 'treasure', 'thopter'],
+    lifegain: ['lifegain', 'life', 'soul sisters', 'drain'],
+    landfall: ['landfall', 'lands', 'ramp'],
+    blink: ['blink', 'flicker', 'etb', 'enter the battlefield', 'value'],
+    voltron: ['voltron', 'equipment', 'auras', 'commander damage'],
+    wheels: ['wheel', 'wheels', 'discard', 'group draw'],
+    zombies: ['zombie', 'zombies', 'undead'],
+    dragons: ['dragon', 'dragons'],
+    elves: ['elf', 'elves', 'elfball'],
+  };
+
+  function matchTheme(text) {
+    const v = lower(text).trim();
+    if (!v) return null;
+    for (const a of T().archetypes) {
+      if (a.key === v || lower(a.name).includes(v)) return a.key;
+    }
+    for (const [key, words] of Object.entries(ALIASES)) {
+      if (words.some((w) => v.includes(w))) return key;
+    }
+    return null;
+  }
+
+  function archetype(key) { return T().archetypes.find((a) => a.key === key) || null; }
+
+  const BASIC_FOR = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
+
+  function poolPick(role, ci, usedNames) {
+    const pool = T().pool[role] || [];
+    for (const p of pool) {
+      if (usedNames.has(Store.norm(p.n))) continue;
+      if ([...(p.ci || '')].some((x) => !ci.includes(x))) continue;
+      return p;
+    }
+    return null;
+  }
+
+  // Facts for owned cards (role detection needs oracle text). Uses the analyzer cache.
+  async function scanCollection(onProgress) {
+    const uniques = [];
+    const seen = new Set();
+    for (const r of Store.rows()) {
+      const k = lower(r.n);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      uniques.push({ n: r.n, sid: r.sid });
+    }
+    const facts = await Analyze.facts(uniques, onProgress);
+    return facts; // { lowername: {o,t,mv,ci,...} }
+  }
+
+  function ownedRole(fact) {
+    if (!fact) return null;
+    const c = { o: fact.o, t: fact.t, mv: fact.mv };
+    if (Rules.isLand(c)) return 'land';
+    if (Rules.isWipe(c)) return 'wipe';
+    if (Rules.isRemoval(c)) return 'removal';
+    if (Rules.isRamp(c)) return 'ramp';
+    if (Rules.isDraw(c)) return 'draw';
+    return 'none';
+  }
+
+  function build(opts) {
+    // opts: {archKey, cmdIdx, bracket (2|3|4), useCollection, substitute, ownedFacts (optional map)}
+    const a = archetype(opts.archKey);
+    if (!a) return { error: 'Unknown theme.' };
+    const cmd = a.commanders[Math.min(opts.cmdIdx || 0, a.commanders.length - 1)];
+    const ci = cmd.ci || '';
+    const notes = [];
+    const cards = cmd.cards.map((c) => ({ ...c }));
+    const used = new Set(cards.map((c) => Store.norm(c.n)));
+    used.add(Store.norm(cmd.name));
+
+    const replace = (idx, why) => {
+      const old = cards[idx];
+      const rolesToTry = old.role !== 'none' && old.role !== 'land' ? [old.role] : ['draw', 'removal', 'ramp'];
+      let sub = null;
+      for (const role of rolesToTry) { sub = poolPick(role, ci, used); if (sub) break; }
+      if (sub) {
+        cards[idx] = { n: sub.n, q: old.q, sid: sub.sid, usd: sub.usd, mv: sub.mv, ci: sub.ci, t: 'Spell', role: rolesToTry[0], gc: 0, basic: 0 };
+        used.add(Store.norm(sub.n));
+        notes.push('Swapped ' + old.n + ' for ' + sub.n + ' (' + why + ').');
+      } else {
+        const basic = BASIC_FOR[ci[0]] || 'Wastes';
+        cards[idx] = { n: basic, q: old.q, sid: '', usd: 0, mv: 0, ci: '', t: 'Land', role: 'land', gc: 0, basic: 1 };
+        notes.push('Removed ' + old.n + ' (' + why + '), slot became a ' + basic + '.');
+      }
+    };
+
+    // bracket shaping
+    const bracket = opts.bracket || 3;
+    const gcLimit = bracket >= 4 ? Infinity : bracket === 3 ? 3 : 0;
+    let gcIdx = cards.map((c, i) => ({ c, i })).filter((x) => x.c.gc);
+    if (gcIdx.length > gcLimit) {
+      gcIdx.sort((x, y) => ((x.c.role === 'none' ? 0 : 1) - (y.c.role === 'none' ? 0 : 1)) || ((y.c.usd || 0) - (x.c.usd || 0)));
+      const excess = gcIdx.slice(0, gcIdx.length - (gcLimit === Infinity ? gcIdx.length : gcLimit));
+      for (const x of excess) replace(x.i, 'Game Changer over the Bracket ' + bracket + ' limit');
+    }
+    if (bracket <= 3) {
+      for (const [i, c] of cards.entries()) {
+        if (Rules.MLD.has(lower(c.n))) replace(i, 'mass land denial is Bracket 4 territory');
+      }
+      const names = new Set(cards.map((c) => lower(c.n)));
+      for (const p of Rules.COMBO_PAIRS) {
+        const isFast = p.mvSum <= 6;
+        if (bracket === 3 && !isFast) continue;
+        if (names.has(lower(p.a)) && names.has(lower(p.b))) {
+          const ia = cards.findIndex((c) => lower(c.n) === lower(p.a));
+          const ib = cards.findIndex((c) => lower(c.n) === lower(p.b));
+          const pick = (cards[ia].role === 'none' ? ia : cards[ib].role === 'none' ? ib : ((cards[ia].usd || 0) > (cards[ib].usd || 0) ? ia : ib));
+          replace(pick, 'breaks the ' + p.a + ' + ' + p.b + ' combo for Bracket ' + bracket);
+          names.delete(lower(cards[pick].n));
+        }
+      }
+    }
+
+    // ownership + substitution
+    const ownedFacts = opts.ownedFacts || null;
+    const usedOwned = new Set();
+    for (const d of Store.state.userdecks) for (const c of d.cards) usedOwned.add(lower(c.n));
+
+    for (const c of cards) {
+      if (c.basic) { c.status = 'basic'; continue; }
+      const own = opts.useCollection ? Store.byName[Store.norm(c.n)] : null;
+      if (own && own.qty > 0) { c.status = 'owned'; c.inDeckAlready = usedOwned.has(lower(c.n)); continue; }
+      c.status = 'buy';
+      if (opts.substitute && ownedFacts && c.role !== 'none' && c.role !== 'land') {
+        let best = null;
+        for (const [k, agg] of Object.entries(Store.byName)) {
+          if (used.has(k) || agg.qty <= 0) continue;
+          const f = ownedFacts[lower(agg.name)];
+          if (!f) continue;
+          if ([...(f.ci || '')].some((x) => !ci.includes(x))) continue;
+          if (ownedRole(f) !== c.role) continue;
+          const d = Math.abs((f.mv || 0) - c.mv);
+          if (!best || d < best.d) best = { name: agg.name, sid: agg.sid || f.sid, d, mv: f.mv };
+        }
+        if (best && best.d <= 2) {
+          c.status = 'sub';
+          c.subFor = c.n;
+          c.n = best.name;
+          c.sid = best.sid;
+          c.usd = 0;
+          used.add(Store.norm(best.name));
+        }
+      }
+    }
+
+    const buy = cards.filter((c) => c.status === 'buy');
+    const stats = {
+      commander: cmd.name, ci, bracket,
+      totalValue: cards.reduce((s, c) => s + (c.usd || 0) * c.q, 0) + (cmd.usd || 0),
+      buyCost: buy.reduce((s, c) => s + (c.usd || 0) * c.q, 0) + (opts.useCollection && Store.byName[Store.norm(cmd.name)] ? 0 : (cmd.usd || 0)),
+      ownedCount: cards.filter((c) => c.status === 'owned').reduce((s, c) => s + c.q, 0),
+      subCount: cards.filter((c) => c.status === 'sub').reduce((s, c) => s + c.q, 0),
+      basicCount: cards.filter((c) => c.status === 'basic').reduce((s, c) => s + c.q, 0),
+      buyCount: buy.reduce((s, c) => s + c.q, 0),
+      commanderOwned: !!(opts.useCollection && Store.byName[Store.norm(cmd.name)]),
+      gcs: cards.filter((c) => c.gc).map((c) => c.n),
+    };
+    return { archetype: a.name, commander: cmd, cards, notes, stats };
+  }
+
+  function decklistText(result) {
+    const lines = ['1 ' + result.commander.name];
+    for (const c of result.cards) lines.push(c.q + ' ' + c.n);
+    return lines.join('\n');
+  }
+  function buylistText(result) {
+    const lines = [];
+    if (!result.stats.commanderOwned) lines.push('1 ' + result.commander.name);
+    for (const c of result.cards) if (c.status === 'buy') lines.push(c.q + ' ' + c.n);
+    return lines.join('\n');
+  }
+
+  // wishlist compare: resolved cards vs collection; touches nothing.
+  function compare(cards) {
+    const rows = [];
+    let buyCost = 0, ownedCount = 0, needCount = 0;
+    for (const c of cards) {
+      const own = Store.byName[Store.norm(c.n)];
+      const have = own ? own.qty : 0;
+      const need = Math.max(0, c.q - have);
+      const res = Store.state.resolved[lower(c.n)];
+      const unit = res && res.usd != null ? res.usd : Store.cardValue(c.n, c.sid || Store.sidFor(c.n));
+      if (need > 0) { needCount += need; buyCost += unit * need; }
+      ownedCount += Math.min(have, c.q);
+      rows.push({ n: c.n, q: c.q, have: Math.min(have, c.q), need, unit, sid: c.sid || Store.sidFor(c.n) });
+    }
+    rows.sort((a, b) => (b.need - a.need) || (b.unit - a.unit));
+    return { rows, buyCost, ownedCount, needCount };
+  }
+  function compareBuylistText(cmp) {
+    return cmp.rows.filter((r) => r.need > 0).map((r) => r.need + ' ' + r.n).join('\n');
+  }
+
+  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText };
+})();
