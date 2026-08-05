@@ -1,5 +1,7 @@
 # Aether Vault Roadmap
 
+> Progress 2026-08-05 overnight: Phase 1 (latency, bake, tests, diagnostics) DONE; Phase 2 (corpus 4.8k decks, bracket labels, micro-brains, Spellbook) DONE; Phase 3 engine gated by BENCHMARKS.md, blend adopted, SVD deferred; Phase 4 guides (overlays, cheat card, coach) DONE; Phase 5 mobile/PWA DONE; Phase 6 sync SHIPPED dormant pending token distribution. Remaining: token handoff, SW cache-version discipline on future bakes, engine v3 ideas per BENCHMARKS.md.
+
 Working plan for iterating this system. Phases are ordered by leverage: stability and
 latency first, then data depth, then engine quality, then content, then persistence.
 Each phase lists concrete deliverables and an acceptance check. This file is the
