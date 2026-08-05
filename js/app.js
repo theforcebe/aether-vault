@@ -1,7 +1,8 @@
-// Aether Vault: router and boot.
+// Aether Vault: router and boot. v3.
 
 const App = (() => {
   const root = () => document.getElementById('view');
+  let remindedThisSession = false;
 
   function parseHash() {
     const h = location.hash || '#/dashboard';
@@ -28,12 +29,12 @@ const App = (() => {
     let html = '';
     if (path === '#/dashboard' || path === '#/' || path === '' || path === '#/vault') html = UI.viewDashboard(params);
     else if (path === '#/collection') html = UI.viewCollection(params);
-    else if (path === '#/decks') html = UI.viewDecks();
-    else if (path.startsWith('#/deck/')) html = UI.viewDeck(path.split('/')[2]);
+    else if (path === '#/decks' || path.startsWith('#/deck/')) html = UI.viewDecks();
     else if (path.startsWith('#/mydeck/')) html = UI.viewMyDeck(path.split('/')[2]);
     else if (path === '#/moves') html = UI.viewMoves();
     else if (path === '#/import') html = UI.viewImport();
     else if (path.startsWith('#/session/')) html = UI.viewSession(path.split('/')[2]);
+    else if (path === '#/guide') html = UI.viewGuide();
     else if (path === '#/data') html = UI.viewData();
     else html = UI.viewDashboard(params);
     el.innerHTML = html;
@@ -42,7 +43,7 @@ const App = (() => {
     document.querySelectorAll('.nav a').forEach((a) => {
       const href = a.getAttribute('href');
       const active = href === path ||
-        (href === '#/decks' && (path.startsWith('#/deck/') || path.startsWith('#/mydeck/') || path.startsWith('#/session/'))) ||
+        (href === '#/decks' && (path.startsWith('#/mydeck/') || path.startsWith('#/session/') || path.startsWith('#/deck/'))) ||
         (href === '#/dashboard' && (path === '#/' || path === '' || path === '#/vault'));
       a.classList.toggle('active', active);
     });
@@ -50,19 +51,25 @@ const App = (() => {
     const n = Store.state.moves.length;
     mc.textContent = n || '';
     mc.style.display = n ? 'inline-flex' : 'none';
+
+    const b = Store.backupState();
+    const dot = document.getElementById('backup-dot');
+    dot.style.display = b.hasData && (b.dirty > 0 || !b.last) ? 'inline-block' : 'none';
+
+    // gentle backup reminder once per session after real changes accumulate
+    if (!remindedThisSession && b.dirty >= 6) {
+      remindedThisSession = true;
+      UI.toast('Reminder: your work lives only in this browser. Download a backup from the Data page.');
+    }
     document.querySelector('details.menu')?.removeAttribute('open');
   }
 
-  // resolve any card that still lacks art, quietly, once per load
   async function heal() {
     const names = Store.missingSidNames().slice(0, 225);
     if (!names.length || !navigator.onLine) return;
     try {
       const res = await Scry.resolveNames(names);
-      if (Object.keys(res.found).length) {
-        Store.cacheResolved(res.found);
-        render();
-      }
+      if (Object.keys(res.found).length) { Store.cacheResolved(res.found); render(); }
     } catch (e) { /* quiet */ }
   }
 
@@ -72,7 +79,7 @@ const App = (() => {
 
     document.getElementById('btn-prices').addEventListener('click', (e) => UI.refreshPrices(e.currentTarget));
     document.getElementById('m-prices').addEventListener('click', (e) => UI.refreshPrices(e.currentTarget));
-    document.getElementById('m-backup').addEventListener('click', () => Store.exportBackup());
+    document.getElementById('m-backup').addEventListener('click', () => { Store.exportBackup(); UI.toast('Backup downloaded.'); render(); });
 
     document.getElementById('file-restore').addEventListener('change', (e) => {
       const f = e.target.files[0];
@@ -93,12 +100,24 @@ const App = (() => {
       rd.onload = () => {
         try {
           const count = Store.uploadCollection(rd.result, f.name.replace(/\.csv$/i, ''));
-          UI.toast('Loaded ' + count + ' rows. You are now viewing your collection.');
+          UI.toast('Loaded ' + count + ' rows from your export.');
+          go('#/collection', {});
           render();
         } catch (err) { UI.toast(err.message || 'Could not read that CSV.'); }
       };
       rd.readAsText(f);
       e.target.value = '';
+    });
+
+    // end-of-session nudge: if there are unbacked changes when the tab hides, remind on return
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        const b = Store.backupState();
+        if (b.hasData && b.dirty >= 3 && !b.remindedBack) {
+          UI.toast('Welcome back. You have changes that are not in a backup yet.');
+          b.remindedBack = true;
+        }
+      }
     });
 
     render();

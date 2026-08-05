@@ -99,5 +99,33 @@ const Scry = (() => {
   async function cardById(sid) { return get('/cards/' + sid); }
   async function cardByName(name) { return get('/cards/named?fuzzy=' + encodeURIComponent(name)); }
 
-  return { img, pricesByIds, resolveNames, cardById, cardByName };
+  function compactFull(c) {
+    return {
+      name: c.name, sid: c.id,
+      o: (c.oracle_text ?? (c.card_faces ? c.card_faces.map((f) => f.oracle_text).join(' // ') : '')).toLowerCase(),
+      t: (c.type_line || '').toLowerCase(),
+      mv: c.cmc || 0,
+      ci: (c.color_identity || []).join(''),
+      ...compactPrices(c),
+    };
+  }
+
+  // Full card facts (oracle text included) for the analyzer. Mixed identifiers.
+  async function fullCards(identifiers, onProgress) {
+    const out = { bySid: {}, byName: {}, missing: [] };
+    for (let i = 0; i < identifiers.length; i += 75) {
+      const res = await post('/cards/collection', { identifiers: identifiers.slice(i, i + 75) });
+      for (const c of res.data || []) {
+        const f = compactFull(c);
+        out.bySid[f.sid] = f;
+        out.byName[c.name.toLowerCase()] = f;
+        out.byName[c.name.split(' // ')[0].toLowerCase()] = f;
+      }
+      for (const nf of res.not_found || []) out.missing.push(nf.name || nf.id || '');
+      if (onProgress) onProgress(Math.min(i + 75, identifiers.length), identifiers.length);
+    }
+    return out;
+  }
+
+  return { img, pricesByIds, resolveNames, cardById, cardByName, fullCards };
 })();

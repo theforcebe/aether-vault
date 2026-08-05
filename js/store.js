@@ -1,8 +1,9 @@
-// Aether Vault: state, persistence, data model.
-// Baked data: VAULT_COLLECTION (site owner's rows), VAULT_CARDS (card facts), VAULT_DECKS (site decks).
-// Local layer (per browser): uploaded collection, user-built decks, imported sessions,
-// price map + daily snapshots, planned card moves, resolved card cache.
-// Everything user-generated stays in localStorage and exports to one JSON backup file.
+// Aether Vault: state, persistence, data model. v3.
+// The app is a neutral tool by default: no collection, no decks until the visitor
+// uploads a ManaBox export, imports lists, or runs the one-time built-in vault import.
+// Baked files (VAULT_COLLECTION / VAULT_DECKS) act only as that importable seed.
+// VAULT_CARDS stays as a general card-facts dictionary for charts and suggestions.
+// Everything user-generated lives in localStorage and exports as one backup file.
 
 const Store = (() => {
   const LS = {
@@ -14,7 +15,9 @@ const Store = (() => {
     resolved: 'av_resolved',
     userdecks: 'av_userdecks',
     mycollection: 'av_mycollection',
-    workspace: 'av_workspace', // 'site' | 'mine'
+    lastbackup: 'av_lastbackup',
+    seeded: 'av_seeded',
+    oracle: 'av_oracle',
   };
 
   const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
@@ -27,9 +30,9 @@ const Store = (() => {
   }
 
   const state = {
-    baked: window.VAULT_COLLECTION || [],
     cards: window.VAULT_CARDS || {},
-    decks: window.VAULT_DECKS || {},
+    seedRows: window.VAULT_COLLECTION || [],
+    seedDecks: window.VAULT_DECKS || {},
     prices: load(LS.prices, {}),
     prev: load(LS.prev, {}),
     snapshots: load(LS.snapshots, []),
@@ -38,26 +41,19 @@ const Store = (() => {
     resolved: load(LS.resolved, {}),
     userdecks: load(LS.userdecks, []),
     mycollection: load(LS.mycollection, null),
-    workspace: load(LS.workspace, 'site'),
+    lastbackup: load(LS.lastbackup, null),
+    seeded: load(LS.seeded, false),
+    dirty: 0, // session mutation counter since load
   };
-  if (state.workspace === 'mine' && !state.mycollection) state.workspace = 'site';
 
-  // ---------- collection (workspace aware) ----------
-  function rows() {
-    return state.workspace === 'mine' && state.mycollection ? state.mycollection.rows : state.baked;
-  }
-  function workspaceLabel() {
-    if (state.workspace === 'mine') return state.mycollection ? state.mycollection.label : 'My collection';
-    return "Keanen's collection";
-  }
-  function setWorkspace(ws) {
-    state.workspace = ws;
-    save(LS.workspace, ws);
-    buildIndexes();
-  }
+  function touch() { state.dirty++; }
+
+  // ---------- collection ----------
+  function rows() { return state.mycollection ? state.mycollection.rows : []; }
+  function hasCollection() { return !!state.mycollection; }
+  function collectionLabel() { return state.mycollection ? state.mycollection.label : 'No collection loaded'; }
 
   let byName = {};
-  const sidBaked = {};
   function buildIndexes() {
     byName = {};
     for (const r of rows()) {
@@ -69,32 +65,33 @@ const Store = (() => {
       if (!byName[k].sid && r.sid) byName[k].sid = r.sid;
     }
   }
-  for (const r of state.baked) { const k = norm(r.n); if (!sidBaked[k] && r.sid) sidBaked[k] = r.sid; }
   buildIndexes();
 
-  const deckOf = {}; // norm -> [site deck keys]
-  for (const [dk, d] of Object.entries(state.decks)) {
-    for (const c of d.cards) {
-      const k = norm(c.n);
-      deckOf[k] ||= [];
-      if (!deckOf[k].includes(dk)) deckOf[k].push(dk);
+  function deckOf() {
+    const map = {};
+    for (const d of state.userdecks) {
+      for (const c of d.cards) {
+        const k = norm(c.n);
+        map[k] ||= [];
+        if (!map[k].includes(d.name)) map[k].push(d.name);
+      }
     }
+    return map;
   }
 
   function card(n) { return state.cards[norm(n)] || null; }
-
   function sidFor(n) {
     const k = norm(n);
     const c = state.cards[k];
     if (c && c.sid) return c.sid;
-    if (sidBaked[k]) return sidBaked[k];
+    const own = byName[k];
+    if (own && own.sid) return own.sid;
     const res = state.resolved[n.toLowerCase()] || state.resolved[k];
     return res ? res.sid : '';
   }
 
   // ---------- prices ----------
   function priceEntry(sid) { return sid ? state.prices[sid] || null : null; }
-
   function unitPrice(n, sid, foil) {
     const p = priceEntry(sid);
     if (p) {
@@ -107,44 +104,17 @@ const Store = (() => {
     const c = card(n);
     return c && c.usd != null ? c.usd : 0;
   }
-
   function rowValue(r) { return unitPrice(r.n, r.sid, r.f) * r.q; }
   function cardValue(n, sid) { return unitPrice(n, sid, ''); }
   function collectionTotal() { return rows().reduce((s, r) => s + rowValue(r), 0); }
+  function priceAge() { const ts = state.prices._ts; return ts ? (Date.now() - ts) / 36e5 : null; }
 
-  function priceAge() {
-    const ts = state.prices._ts;
-    return ts ? (Date.now() - ts) / 36e5 : null;
-  }
-
-  // ---------- site decks with moves applied ----------
-  function deckCards(dk) {
-    const d = state.decks[dk];
-    if (!d) return [];
-    const list = d.cards.map((c) => ({ ...c }));
-    for (const m of state.moves) {
-      if (m.from === dk) {
-        const i = list.findIndex((c) => norm(c.n) === norm(m.n) && c.src !== 'commander');
-        if (i >= 0) { list[i].q -= 1; if (list[i].q <= 0) list.splice(i, 1); }
-      }
-      if (m.to === dk) {
-        const i = list.findIndex((c) => norm(c.n) === norm(m.n));
-        if (i >= 0) list[i].q += 1;
-        else list.push({ n: m.n, q: 1, src: 'moved', sid: m.sid || sidFor(m.n) });
-      }
-    }
-    return list;
-  }
-  function deckTotal(dk) {
-    return deckCards(dk).reduce((s, c) => s + cardValue(c.n, c.sid || sidFor(c.n)) * c.q, 0);
-  }
-
-  // ---------- user decks ----------
+  // ---------- decks (all user decks) ----------
   function userDeck(id) { return state.userdecks.find((d) => d.id === id) || null; }
-  function saveUserDecks() { save(LS.userdecks, state.userdecks); }
+  function saveUserDecks() { save(LS.userdecks, state.userdecks); touch(); }
   function createUserDeck(name, cards, commander) {
     const d = {
-      id: 'u' + Date.now().toString(36),
+      id: 'u' + Date.now().toString(36) + Math.floor(Math.random() * 99),
       name: name || 'New deck',
       commander: commander || '',
       cards: (cards || []).map((c) => ({ n: c.n, q: c.q, sid: c.sid || sidFor(c.n) })),
@@ -154,10 +124,7 @@ const Store = (() => {
     saveUserDecks();
     return d;
   }
-  function deleteUserDeck(id) {
-    state.userdecks = state.userdecks.filter((d) => d.id !== id);
-    saveUserDecks();
-  }
+  function deleteUserDeck(id) { state.userdecks = state.userdecks.filter((d) => d.id !== id); saveUserDecks(); }
   function renameUserDeck(id, name) { const d = userDeck(id); if (d) { d.name = name; saveUserDecks(); } }
   function setUserCommander(id, n) { const d = userDeck(id); if (d) { d.commander = n; saveUserDecks(); } }
   function addToUserDeck(id, n, q) {
@@ -179,39 +146,120 @@ const Store = (() => {
   }
   function userDeckTotal(id) {
     const d = userDeck(id);
-    if (!d) return 0;
-    return d.cards.reduce((s, c) => s + cardValue(c.n, c.sid || sidFor(c.n)) * c.q, 0);
+    return d ? d.cards.reduce((s, c) => s + cardValue(c.n, c.sid || sidFor(c.n)) * c.q, 0) : 0;
   }
-
-  // unified accessor: site key, or 'u:<id>'
-  function deckView(key) {
-    if (key.startsWith('u:')) {
-      const d = userDeck(key.slice(2));
-      if (!d) return null;
-      const cmd = d.cards.find((c) => norm(c.n) === norm(d.commander));
-      return {
-        kind: 'user', key, id: d.id, name: d.name, sub: 'Custom deck', ci: '',
-        commander: d.commander, commanderSid: cmd ? (cmd.sid || sidFor(cmd.n)) : '',
-        cards: d.cards.map((c) => ({ ...c, src: norm(c.n) === norm(d.commander) ? 'commander' : 'user' })),
-        gcs: [], editable: true,
-      };
-    }
-    const d = state.decks[key];
+  function deckView(id) {
+    const d = userDeck(id);
     if (!d) return null;
-    const cmdEntry = d.cards.find((c) => c.src === 'commander');
+    const cmd = d.cards.find((c) => norm(c.n) === norm(d.commander));
+    const cmdFacts = d.commander ? card(d.commander) : null;
     return {
-      kind: 'site', key, name: d.name, sub: d.sub, ci: d.ci,
-      commander: cmdEntry ? cmdEntry.n : '', commanderSid: cmdEntry ? cmdEntry.sid : '',
-      cards: deckCards(key), gcs: d.gcs || [], editable: false,
+      id: d.id, name: d.name, commander: d.commander,
+      commanderSid: cmd ? (cmd.sid || sidFor(cmd.n)) : '',
+      ci: cmdFacts ? (cmdFacts.ci || '') : '',
+      sub: d.commander ? 'Commander: ' + d.commander : 'No commander set',
+      cards: d.cards.map((c) => ({ ...c, src: norm(c.n) === norm(d.commander) ? 'commander' : (c.src || 'user') })),
     };
   }
-  function allDeckRefs() {
-    const out = Object.keys(state.decks).map((k) => ({ key: k, name: state.decks[k].name, kind: 'site' }));
-    for (const d of state.userdecks) out.push({ key: 'u:' + d.id, name: d.name, kind: 'user' });
-    return out;
+  function allDeckRefs() { return state.userdecks.map((d) => ({ key: d.id, name: d.name })); }
+
+  // ---------- one-time seed import ----------
+  function seedAvailable() { return state.seedRows.length > 0 && Object.keys(state.seedDecks).length > 0; }
+  function importSeed() {
+    if (!seedAvailable()) return { decks: 0, rows: 0 };
+    let made = 0;
+    for (const [, d] of Object.entries(state.seedDecks)) {
+      const cmdEntry = d.cards.find((c) => c.src === 'commander');
+      createUserDeck(d.name, d.cards.filter((c) => c.src !== 'commander').concat(cmdEntry ? [cmdEntry] : []),
+        cmdEntry ? cmdEntry.n : '');
+      made++;
+    }
+    state.mycollection = {
+      label: "Keanen's ManaBox export",
+      uploaded: new Date().toISOString(),
+      rows: state.seedRows.map((r) => ({ ...r })),
+    };
+    save(LS.mycollection, state.mycollection);
+    state.seeded = true;
+    save(LS.seeded, true);
+    buildIndexes();
+    touch();
+    return { decks: made, rows: state.mycollection.rows.length };
   }
 
-  // ---------- snapshots / movers ----------
+  // ---------- ManaBox CSV ----------
+  function parseManaBoxCsv(text) {
+    const rowsArr = [];
+    let row = [], f = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(f); f = ''; }
+      else if (ch === '\n') { row.push(f); rowsArr.push(row); row = []; f = ''; }
+      else if (ch !== '\r') f += ch;
+    }
+    if (f.length || row.length) { row.push(f); rowsArr.push(row); }
+    const header = (rowsArr[0] || []).map((h) => h.replace(/^﻿/, ''));
+    const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+    if (!('Name' in idx) || !('Quantity' in idx)) {
+      throw new Error('That does not look like a ManaBox export. It needs at least Name and Quantity columns.');
+    }
+    const out = [];
+    for (let i = 1; i < rowsArr.length; i++) {
+      const r = rowsArr[i];
+      if (!r || !r[idx['Name']]) continue;
+      out.push({
+        n: r[idx['Name']],
+        b: idx['Binder Name'] != null ? (r[idx['Binder Name']] || 'Collection') : 'Collection',
+        bt: idx['Binder Type'] != null ? (r[idx['Binder Type']] || 'binder') : 'binder',
+        s: idx['Set code'] != null ? (r[idx['Set code']] || '').toUpperCase() : '',
+        cn: idx['Collector number'] != null ? r[idx['Collector number']] : '',
+        f: idx['Foil'] != null && r[idx['Foil']] && r[idx['Foil']] !== 'normal' ? r[idx['Foil']] : '',
+        q: parseInt(r[idx['Quantity']], 10) || 1,
+        sid: idx['Scryfall ID'] != null ? (r[idx['Scryfall ID']] || '') : '',
+      });
+    }
+    if (!out.length) throw new Error('No card rows found in that file.');
+    return out;
+  }
+  function uploadCollection(text, label) {
+    const parsed = parseManaBoxCsv(text);
+    state.mycollection = { label: label || 'My collection', uploaded: new Date().toISOString(), rows: parsed };
+    save(LS.mycollection, state.mycollection);
+    buildIndexes();
+    touch();
+    return parsed.length;
+  }
+  function clearMyCollection() {
+    state.mycollection = null;
+    localStorage.removeItem(LS.mycollection);
+    buildIndexes();
+    touch();
+  }
+  function binderSummary() {
+    const map = {};
+    for (const r of rows()) {
+      map[r.b] ||= { name: r.b, type: r.bt || 'binder', rows: 0, cards: 0 };
+      map[r.b].rows++;
+      map[r.b].cards += r.q;
+    }
+    return Object.values(map).sort((a, b) => b.cards - a.cards);
+  }
+  function importBinderAsDeck(binderName) {
+    const cs = [];
+    for (const r of rows()) {
+      if (r.b !== binderName) continue;
+      const existing = cs.find((c) => norm(c.n) === norm(r.n));
+      if (existing) existing.q += r.q;
+      else cs.push({ n: r.n, q: r.q, sid: r.sid });
+    }
+    if (!cs.length) return null;
+    return createUserDeck(binderName, cs, '');
+  }
+
+  // ---------- snapshots / movers / stats ----------
+  const r2 = (v) => Math.round(v * 100) / 100;
   function applyFreshPrices(map) {
     state.prev = { ...state.prices };
     delete state.prev._ts;
@@ -219,15 +267,13 @@ const Store = (() => {
     save(LS.prev, state.prev);
     save(LS.prices, state.prices);
     const snap = { date: new Date().toISOString().slice(0, 10), total: r2(collectionTotal()), decks: {} };
-    for (const dk of Object.keys(state.decks)) snap.decks[dk] = r2(deckTotal(dk));
-    for (const d of state.userdecks) snap.decks['u:' + d.id] = r2(userDeckTotal(d.id));
+    for (const d of state.userdecks) snap.decks[d.id] = r2(userDeckTotal(d.id));
     state.snapshots = state.snapshots.filter((s) => s.date !== snap.date);
     state.snapshots.push(snap);
     state.snapshots = state.snapshots.slice(-180);
     save(LS.snapshots, state.snapshots);
+    touch();
   }
-  const r2 = (v) => Math.round(v * 100) / 100;
-
   function movers(limit) {
     const out = [];
     if (!Object.keys(state.prev).length) return out;
@@ -247,7 +293,6 @@ const Store = (() => {
     out.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
     return out.slice(0, limit || 12);
   }
-
   function topHoldings(limit) {
     const agg = {};
     for (const r of rows()) {
@@ -255,13 +300,11 @@ const Store = (() => {
       agg[k] ||= { n: r.n, sid: r.sid, q: 0, f: r.f, unit: unitPrice(r.n, r.sid, r.f) };
       agg[k].q += r.q;
     }
-    const list = Object.values(agg).map((a) => ({ ...a, total: a.unit * a.q }));
-    list.sort((a, b) => b.total - a.total);
-    return list.slice(0, limit || 10);
+    return Object.values(agg).map((a) => ({ ...a, total: a.unit * a.q }))
+      .sort((a, b) => b.total - a.total).slice(0, limit || 10);
   }
-
   function distribution() {
-    const type = {}; const color = {}; const rarity = {};
+    const type = {}; const color = {};
     for (const r of rows()) {
       const c = card(r.n);
       if (!c) continue;
@@ -273,11 +316,9 @@ const Store = (() => {
         : c.t.includes('Enchantment') ? 'Enchantment'
         : c.t.includes('Planeswalker') ? 'Planeswalker' : 'Other';
       type[t] = (type[t] || 0) + r.q;
-      const ci = c.ci || 'C';
-      for (const ch of ci) color[ch] = (color[ch] || 0) + r.q;
-      if (c.r) rarity[c.r] = (rarity[c.r] || 0) + r.q;
+      for (const ch of (c.ci || 'C')) color[ch] = (color[ch] || 0) + r.q;
     }
-    return { type, color, rarity };
+    return { type, color };
   }
 
   // ---------- moves ----------
@@ -285,90 +326,51 @@ const Store = (() => {
     if (from === to) return;
     state.moves.push({ id: 'm' + Date.now() + Math.floor(Math.random() * 999), n, sid: sidFor(n), from, to, ts: Date.now() });
     save(LS.moves, state.moves);
+    touch();
   }
-  function removeMove(id) { state.moves = state.moves.filter((m) => m.id !== id); save(LS.moves, state.moves); }
-  function clearMoves() { state.moves = []; save(LS.moves, state.moves); }
+  function removeMove(id) { state.moves = state.moves.filter((m) => m.id !== id); save(LS.moves, state.moves); touch(); }
+  function clearMoves() { state.moves = []; save(LS.moves, state.moves); touch(); }
+  function deckNameFor(key) {
+    if (key === 'collection') return 'Collection';
+    const d = userDeck(key);
+    return d ? d.name : key;
+  }
 
   // ---------- sessions ----------
   function saveSession(name, cards) {
     const s = { id: 's' + Date.now(), name, cards, created: new Date().toISOString() };
     state.sessions.push(s);
     save(LS.sessions, state.sessions);
+    touch();
     return s;
   }
-  function deleteSession(id) { state.sessions = state.sessions.filter((s) => s.id !== id); save(LS.sessions, state.sessions); }
+  function deleteSession(id) { state.sessions = state.sessions.filter((s) => s.id !== id); save(LS.sessions, state.sessions); touch(); }
 
-  function cacheResolved(found) {
-    Object.assign(state.resolved, found);
-    save(LS.resolved, state.resolved);
-  }
+  function cacheResolved(found) { Object.assign(state.resolved, found); save(LS.resolved, state.resolved); }
 
   function missingSidNames() {
     const out = new Set();
     const check = (n, sid) => { if (!sid && !sidFor(n)) out.add(n); };
-    for (const d of Object.values(state.decks)) for (const c of d.cards) check(c.n, c.sid);
     for (const d of state.userdecks) for (const c of d.cards) check(c.n, c.sid);
     for (const s of state.sessions) for (const c of s.cards) check(c.n, c.sid);
     return [...out];
   }
 
-  // ---------- ManaBox CSV upload ----------
-  function parseManaBoxCsv(text) {
-    const rowsArr = [];
-    let row = [], f = '', q = false;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
-      else if (ch === '"') q = true;
-      else if (ch === ',') { row.push(f); f = ''; }
-      else if (ch === '\n') { row.push(f); rowsArr.push(row); row = []; f = ''; }
-      else if (ch !== '\r') f += ch;
-    }
-    if (f.length || row.length) { row.push(f); rowsArr.push(row); }
-    const header = rowsArr[0] || [];
-    const idx = Object.fromEntries(header.map((h, i) => [h.replace(/^﻿/, ''), i]));
-    if (!('Name' in idx) || !('Quantity' in idx)) throw new Error('That does not look like a ManaBox export (needs Name and Quantity columns).');
-    const out = [];
-    for (let i = 1; i < rowsArr.length; i++) {
-      const r = rowsArr[i];
-      if (!r || !r[idx['Name']]) continue;
-      out.push({
-        n: r[idx['Name']],
-        b: idx['Binder Name'] != null ? r[idx['Binder Name']] : 'Collection',
-        s: idx['Set code'] != null ? (r[idx['Set code']] || '').toUpperCase() : '',
-        cn: idx['Collector number'] != null ? r[idx['Collector number']] : '',
-        f: idx['Foil'] != null && r[idx['Foil']] !== 'normal' ? r[idx['Foil']] : '',
-        q: parseInt(r[idx['Quantity']], 10) || 1,
-        sid: idx['Scryfall ID'] != null ? r[idx['Scryfall ID']] : '',
-      });
-    }
-    return out;
-  }
-  function uploadCollection(text, label) {
-    const parsed = parseManaBoxCsv(text);
-    state.mycollection = { label: label || 'My collection', uploaded: new Date().toISOString(), rows: parsed };
-    save(LS.mycollection, state.mycollection);
-    setWorkspace('mine');
-    return parsed.length;
-  }
-  function clearMyCollection() {
-    state.mycollection = null;
-    localStorage.removeItem(LS.mycollection);
-    setWorkspace('site');
-  }
-
-  // ---------- backup / stats ----------
+  // ---------- backup ----------
   function exportBackup() {
     const blob = new Blob([JSON.stringify({
-      exported: new Date().toISOString(), app: 'aether-vault', version: 2,
+      exported: new Date().toISOString(), app: 'aether-vault', version: 3,
       prices: state.prices, prev: state.prev, snapshots: state.snapshots,
       moves: state.moves, sessions: state.sessions, resolved: state.resolved,
-      userdecks: state.userdecks, mycollection: state.mycollection, workspace: state.workspace,
+      userdecks: state.userdecks, mycollection: state.mycollection, seeded: state.seeded,
     })], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'aether-vault-backup-' + new Date().toISOString().slice(0, 10) + '.json';
     a.click();
+    state.lastbackup = Date.now();
+    save(LS.lastbackup, state.lastbackup);
+    state.dirty = 0;
   }
   function importBackup(obj) {
     if (!obj || obj.app !== 'aether-vault') throw new Error('Not an Aether Vault backup file');
@@ -381,8 +383,10 @@ const Store = (() => {
     state.userdecks = obj.userdecks || []; save(LS.userdecks, state.userdecks);
     state.mycollection = obj.mycollection || null;
     if (state.mycollection) save(LS.mycollection, state.mycollection);
-    state.workspace = obj.workspace === 'mine' && state.mycollection ? 'mine' : 'site';
-    save(LS.workspace, state.workspace);
+    else localStorage.removeItem(LS.mycollection);
+    state.seeded = !!obj.seeded; save(LS.seeded, state.seeded);
+    state.lastbackup = Date.now(); save(LS.lastbackup, state.lastbackup);
+    state.dirty = 0;
     buildIndexes();
   }
   function clearLocalData() {
@@ -390,32 +394,41 @@ const Store = (() => {
     location.reload();
   }
   function storageStats() {
+    const labels = {
+      prices: 'Live prices', prev: 'Previous prices (movers)', snapshots: 'Value snapshots',
+      moves: 'Move checklist', sessions: 'Imported lists', resolved: 'Resolved card cache',
+      userdecks: 'Your decks', mycollection: 'Your collection', oracle: 'Analyzer card cache',
+      lastbackup: 'Backup timestamp', seeded: 'Seed flag',
+    };
     const out = [];
-    for (const [label, key] of Object.entries(LS)) {
+    for (const [short, key] of Object.entries(LS)) {
       const v = localStorage.getItem(key);
-      if (v) out.push({ key, label, bytes: v.length });
+      if (v) out.push({ key, label: labels[short] || key, bytes: v.length });
     }
     return out;
+  }
+  function backupState() {
+    return { last: state.lastbackup, dirty: state.dirty, hasData: !!(state.userdecks.length || state.mycollection || state.sessions.length) };
   }
 
   function uniqueSids() {
     const s = new Set();
     for (const r of rows()) if (r.sid) s.add(r.sid);
-    for (const d of Object.values(state.decks)) for (const c of d.cards) if (c.sid) s.add(c.sid);
     for (const d of state.userdecks) for (const c of d.cards) if (c.sid) s.add(c.sid);
     return [...s];
   }
 
   return {
     state, norm, card, sidFor,
-    rows, workspaceLabel, setWorkspace, get byName() { return byName; }, deckOf,
+    rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
     unitPrice, rowValue, cardValue, collectionTotal, priceAge,
-    deckCards, deckTotal, deckView, allDeckRefs,
-    userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander, addToUserDeck, setUserQty, userDeckTotal,
+    userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander,
+    addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
+    seedAvailable, importSeed,
+    parseManaBoxCsv, uploadCollection, clearMyCollection, binderSummary, importBinderAsDeck,
     applyFreshPrices, movers, topHoldings, distribution,
     addMove, removeMove, clearMoves,
     saveSession, deleteSession, cacheResolved, missingSidNames,
-    parseManaBoxCsv, uploadCollection, clearMyCollection,
-    exportBackup, importBackup, clearLocalData, storageStats, uniqueSids,
+    exportBackup, importBackup, clearLocalData, storageStats, backupState, uniqueSids,
   };
 })();
