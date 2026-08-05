@@ -155,6 +155,7 @@ const Sync = (() => {
       if (res2.conflict) throw new Error('Sync conflict; try again.');
     }
     save(LS_META, { ...m, slug, lastPush: Date.now() });
+    if (boardOn()) publishBoard().catch(() => { /* board lag never blocks a vault push */ });
     return true;
   }
 
@@ -183,6 +184,89 @@ const Sync = (() => {
     Store.importBackup(JSON.parse(raw));
   }
 
+  // ---------- leaderboard (opt-in) ----------
+  // Vaults stay unreadable to everyone; the board is a separate, deliberately
+  // public-to-the-circle stats file: display name and counts only. No card
+  // lists, no values. Published on push while opted in; deleted on opt-out.
+  function boardEntry() {
+    const progC = Store.setProgress('cards');
+    const progP = Store.setProgress('prints');
+    if (!progC || !progP) return null; // intelligence bundles not loaded yet
+    return {
+      name: (identity() || {}).name || 'Unknown',
+      cards: progC.uniqueOwned,
+      prints: progP.uniqueOwned,
+      sets: progC.sets.length,
+      masters: progC.sets.filter((s) => s.pct >= 1).length,
+      title: Store.collectorTitle(progC),
+      t: Date.now(),
+    };
+  }
+
+  const boardOn = () => !!meta().board;
+
+  async function publishBoard() {
+    const id = identity();
+    if (!id) throw new Error('Sync is not set up.');
+    if (typeof App !== 'undefined' && App.ensureData) await App.ensureData();
+    const entry = boardEntry();
+    if (!entry) throw new Error('Set data is still loading; try again in a moment.');
+    const m = meta();
+    const slug = m.slug || await slugFor(id.name, id.pin);
+    const path = 'board/' + slug + '.json';
+    const existing = await apiGet(id.token, path);
+    const res = await apiPut(id.token, path, btoa(JSON.stringify(entry)), 'board update', existing ? existing.sha : undefined);
+    if (res.conflict) {
+      const again = await apiGet(id.token, path);
+      await apiPut(id.token, path, btoa(JSON.stringify(entry)), 'board update', again ? again.sha : undefined);
+    }
+    return entry;
+  }
+
+  async function removeBoard() {
+    const id = identity();
+    if (!id) return;
+    const m = meta();
+    const slug = m.slug || await slugFor(id.name, id.pin);
+    const path = 'board/' + slug + '.json';
+    const existing = await apiGet(id.token, path);
+    if (!existing) return;
+    await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path, {
+      method: 'DELETE',
+      headers: { ...headers(id.token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'board leave', sha: existing.sha }),
+    });
+  }
+
+  async function setBoard(on) {
+    const m = meta();
+    save(LS_META, { ...m, board: !!on });
+    if (on) return publishBoard();
+    return removeBoard();
+  }
+
+  async function fetchBoard() {
+    const id = identity();
+    if (!id) throw new Error('Sync is not set up.');
+    const dir = await apiGet(id.token, 'board');
+    if (!dir || !Array.isArray(dir)) return [];
+    const entries = [];
+    for (const f of dir) {
+      if (!f.name.endsWith('.json')) continue;
+      try {
+        const file = await apiGet(id.token, 'board/' + f.name);
+        const e = JSON.parse(atob(file.content.replace(/\n/g, '')));
+        if (e && e.name != null && e.cards != null) entries.push({ ...e, slug: f.name.replace('.json', '') });
+      } catch (err) { /* one bad entry never sinks the board */ }
+    }
+    return rankBoard(entries);
+  }
+
+  // ranked by distinct cards, printings as the tiebreaker; pure for testing
+  function rankBoard(entries) {
+    return [...entries].sort((a, b) => (b.cards - a.cards) || (b.prints - a.prints) || (b.masters || 0) - (a.masters || 0));
+  }
+
   // debounced autosync
   let timer = null;
   let lastDirty = 0;
@@ -199,5 +283,5 @@ const Sync = (() => {
     }
   }
 
-  return { REPO, enabled, identity, meta, enable, signOut, push, pull, applyCloud, autosyncTick, encrypt, decrypt, slugFor, currentVault, counts, hasSnapshot, restoreSnapshot };
+  return { REPO, enabled, identity, meta, enable, signOut, push, pull, applyCloud, autosyncTick, encrypt, decrypt, slugFor, currentVault, counts, hasSnapshot, restoreSnapshot, boardEntry, boardOn, setBoard, publishBoard, fetchBoard, rankBoard };
 })();

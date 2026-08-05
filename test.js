@@ -346,6 +346,18 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   let wrongPin = false;
   try { await Sync.decrypt('Keanen', '9999', env); } catch (e) { wrongPin = true; }
   ok(wrongPin, 'wrong PIN cannot decrypt');
+  // leaderboard entry: counts only, never card data
+  mem.av_sync_id = JSON.stringify({ name: 'Keanen', pin: '1234', token: 'tok' });
+  const be = Sync.boardEntry();
+  ok(be && be.cards > 500 && be.prints > 500 && be.sets > 0 && be.title, 'board entry carries counts and a title (' + (be && be.cards) + ' cards)');
+  ok(be && !JSON.stringify(be).toLowerCase().includes('sol ring') && !('rows' in be) && !('value' in be), 'board entry leaks no card names or values');
+  delete mem.av_sync_id;
+  const ranked = Sync.rankBoard([
+    { name: 'B', cards: 100, prints: 500 }, { name: 'A', cards: 900, prints: 10 },
+    { name: 'C', cards: 100, prints: 900 }, { name: 'D', cards: 900, prints: 10, masters: 2 },
+  ]);
+  ok(ranked[0].name === 'D' && ranked[1].name === 'A' && ranked[2].name === 'C' && ranked[3].name === 'B', 'board ranks by cards, then printings, then masters');
+
   const s1 = await Sync.slugFor('Keanen', '1234');
   const s2 = await Sync.slugFor('keanen ', '1234');
   const s3 = await Sync.slugFor('Keanen', '5678');

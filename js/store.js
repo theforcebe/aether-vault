@@ -226,6 +226,22 @@ const Store = (() => {
     }
     return null; // mastered
   }
+
+  // the headline title for a whole collection; shared by the Collector page
+  // and leaderboard entries
+  function collectorTitle(prog) {
+    const mastered = prog.sets.filter((s) => s.pct >= 1).length;
+    const near = prog.sets.filter((s) => s.pct >= 0.9).length;
+    const half = prog.sets.filter((s) => s.pct >= 0.5).length;
+    if (mastered >= 3) return 'Master of ' + mastered + ' Sets';
+    if (mastered >= 1) return 'Set Master';
+    if (near >= 1) return 'Completionist';
+    if (half >= 3) return 'Grand Curator';
+    if (half >= 1) return 'Curator';
+    if (prog.sets.length >= 10) return 'Wide-Ranging Collector';
+    if (prog.sets.length >= 3) return 'Collector';
+    return 'Apprentice Collector';
+  }
   function priceAge() { const ts = state.prices._ts; return ts ? (Date.now() - ts) / 36e5 : null; }
 
   // ---------- price baseline (first price the app ever saw for a printing+finish) ----------
@@ -612,7 +628,7 @@ const Store = (() => {
   return {
     state, norm, card, sidFor,
     rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
-    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, ownsName,
+    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, collectorTitle, ownsName,
     userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,

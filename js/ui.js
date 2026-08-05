@@ -740,7 +740,10 @@ const UI = (() => {
         '<button class="btn" id="sync-pull">Pull from cloud</button>' +
         '<button class="btn" id="sync-out">Sign out on this device</button>' +
         (Sync.hasSnapshot() ? '<button class="btn" id="sync-restore-snap">Restore pre-sync snapshot</button>' : '') +
-        '</div><div id="sync-status2" class="dim"></div></section>';
+        '</div>' +
+        '<div class="page-actions" style="margin-top:10px"><button class="btn" id="sync-board">' + (Sync.boardOn() ? 'Leave the leaderboard' : 'Join the leaderboard') + '</button></div>' +
+        '<p class="dim" style="margin-top:6px">The leaderboard shares only your name and counts (cards, printings, sets, masters) with people on this sync circle. Never your card list, never values. It updates each time you sync.</p>' +
+        '<div id="sync-status2" class="dim"></div></section>';
     }
     return '<section class="panel"><div class="panel-h">Sync across devices</div>' +
       '<p class="dim">Your vault encrypts in this browser with a key from your name plus PIN, then syncs to a private repo. The access token comes from Keanen personally; the PIN is the only thing that opens your data, and a lost PIN cannot be recovered.</p>' +
@@ -791,19 +794,7 @@ const UI = (() => {
   }
 
   // ---------- collector ----------
-  function overallTitle(prog) {
-    const mastered = prog.sets.filter((s) => s.pct >= 1).length;
-    const near = prog.sets.filter((s) => s.pct >= 0.9).length;
-    const half = prog.sets.filter((s) => s.pct >= 0.5).length;
-    if (mastered >= 3) return 'Master of ' + mastered + ' Sets';
-    if (mastered >= 1) return 'Set Master';
-    if (near >= 1) return 'Completionist';
-    if (half >= 3) return 'Grand Curator';
-    if (half >= 1) return 'Curator';
-    if (prog.sets.length >= 10) return 'Wide-Ranging Collector';
-    if (prog.sets.length >= 3) return 'Collector';
-    return 'Apprentice Collector';
-  }
+  const overallTitle = (prog) => Store.collectorTitle(prog);
 
   function collectorRow(s) {
     const tier = s.owned > 0 ? Store.setTier(s.owned, s.total) : null;
@@ -918,7 +909,29 @@ const UI = (() => {
       (showAll
         ? '<div class="page-actions" style="margin-top:10px"><a class="btn small" href="#/collector' + (mode === 'prints' ? '?mode=prints' : '') + '">Show only my sets</a></div>'
         : '<div class="page-actions" style="margin-top:10px"><a class="btn small" href="#/collector?' + (mode === 'prints' ? 'mode=prints&' : '') + 'all=1">Show all ' + rest.length + ' remaining sets</a></div>') +
+      '</section>' +
+      '<section class="panel"><div class="panel-h">Leaderboard</div>' +
+      (Sync.enabled()
+        ? '<div id="lb-slot"><p class="dim">Checking the circle...</p></div>'
+        : '<p class="dim">The leaderboard lives in your sync circle. Set up sync on the Data page, then join from there; standings show everyone who opted in.</p>') +
       '</section>';
+  }
+
+  function leaderboardHtml(entries) {
+    if (!entries.length) {
+      return '<p class="dim">Nobody on the board yet.' + (Sync.boardOn() ? ' Your entry appears after your next sync.' : ' Join from the Data page sync panel.') + '</p>';
+    }
+    const meSlug = (Sync.meta() || {}).slug;
+    return entries.map((e, i) => {
+      const me = e.slug === meSlug;
+      return '<div class="lb-row' + (me ? ' me' : '') + '">' +
+        '<span class="lb-rank' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span>' +
+        '<span class="lb-name">' + esc(e.name) + (me ? ' <span class="dim">you</span>' : '') +
+        '<span class="lb-title">' + esc(e.title || '') + '</span></span>' +
+        '<span class="lb-nums"><strong>' + (e.cards || 0).toLocaleString() + '</strong> cards' +
+        '<span class="dim">' + (e.prints || 0).toLocaleString() + ' printings' + (e.masters ? ', ' + e.masters + ' mastered' : '') + '</span></span></div>';
+    }).join('') +
+    '<div class="dim" style="margin-top:8px">Ranked by distinct cards. Standings update as people sync.</div>';
   }
 
   async function fetchSetCards(code, mode) {
@@ -1111,6 +1124,12 @@ const UI = (() => {
     }
     // collector: rings, count-ups, search/sort/filter, quick-win jumps
     if (route === '#/collector') {
+      const lbSlot = $('#lb-slot', root);
+      if (lbSlot && Sync.enabled()) {
+        Sync.fetchBoard()
+          .then((entries) => { lbSlot.innerHTML = leaderboardHtml(entries); })
+          .catch(() => { lbSlot.innerHTML = '<p class="dim">Could not reach the circle. Check your connection and token.</p>'; });
+      }
       const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       $$('.count-up', root).forEach((el) => {
         const target = parseInt(el.getAttribute('data-target'), 10) || 0;
@@ -1703,6 +1722,21 @@ const UI = (() => {
     const srs = $('#sync-restore-snap', root);
     if (srs) srs.addEventListener('click', () => sheet('Restore this device to the snapshot taken before the last cloud pull?', [
       { label: 'Restore snapshot', cb: () => { Sync.restoreSnapshot(); toast('Snapshot restored.'); App.refresh(); } }]));
+    const sb = $('#sync-board', root);
+    if (sb) sb.addEventListener('click', async () => {
+      sb.disabled = true;
+      try {
+        if (Sync.boardOn()) {
+          await Sync.setBoard(false);
+          toast('Left the leaderboard. Your entry was removed.');
+        } else {
+          const e = await Sync.setBoard(true);
+          toast('On the board: ' + e.cards.toLocaleString() + ' cards, ' + e.prints.toLocaleString() + ' printings.');
+        }
+        App.refresh();
+      } catch (err) { toast(err.message || 'Leaderboard update failed.'); }
+      sb.disabled = false;
+    });
     const so = $('#sync-out', root);
     if (so) so.addEventListener('click', () => sheet('Sign out of sync on this device? Local data stays.', [
       { label: 'Sign out', cb: () => { Sync.signOut(); toast('Signed out.'); App.refresh(); } }]));

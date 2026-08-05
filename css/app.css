@@ -778,3 +778,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
   .d-p .tick { display: block; font-size: 10px; }
   .qty-ctl { display: inline-flex; align-items: center; gap: 3px; }
 }
+
+/* ---------- v14: leaderboard ---------- */
+.lb-row { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+.lb-row:last-of-type { border-bottom: none; }
+.lb-row.me { background: var(--accent-soft); border-radius: 8px; border-bottom-color: transparent; }
+.lb-rank { min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--bg); border: 1px solid var(--line-strong); font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.lb-rank.top { background: #faf3dc; border-color: #eadfb8; color: var(--gold); }
+.lb-name { flex: 1; min-width: 0; font-weight: 600; display: flex; flex-direction: column; }
+.lb-title { font-size: 11px; font-weight: 550; color: var(--dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.lb-nums { text-align: right; font-size: 13px; display: flex; flex-direction: column; font-variant-numeric: tabular-nums; }
