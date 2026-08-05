@@ -15,7 +15,13 @@ const Sync = (() => {
   function load(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
   function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* full */ } }
 
-  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  // chunked: spreading a whole vault's bytes as arguments overflows the call stack
+  const b64 = (buf) => {
+    const u8 = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    return btoa(s);
+  };
   const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
   async function keyFor(name, pin, salt) {

@@ -240,6 +240,11 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   const s2 = await Sync.slugFor('keanen ', '1234');
   const s3 = await Sync.slugFor('Keanen', '5678');
   ok(s1 === s2 && s1 !== s3 && s1.length === 24, 'slug deterministic, case/space-insensitive, pin-sensitive');
+  // full-size vault: a real collection is megabytes; byte-spreading overflowed the stack here once
+  const big = { rows: Array.from({ length: 20000 }, (_, i) => ({ n: 'Card Number ' + i, q: 1 + (i % 4), b: 'Binder ' + (i % 9), usd: (i % 400) / 4 })) };
+  const bigEnv = await Sync.encrypt('Keanen', '1234', big);
+  const bigBack = await Sync.decrypt('Keanen', '1234', bigEnv);
+  ok(bigBack.rows.length === 20000 && bigBack.rows[19999].n === 'Card Number 19999', 'megabyte-scale vault roundtrips (' + Math.round(bigEnv.ct.length / 1024) + 'KB ciphertext)');
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
