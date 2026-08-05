@@ -234,6 +234,22 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   ok(agg && Math.abs(agg.d - expected) < 0.05 && agg.pct > 0, 'collection ticker sums per-card movement (+' + (agg ? agg.d.toFixed(2) : '?') + ' expected +' + expected.toFixed(2) + ')');
   if (hadBase != null) Store.state.baseline[tickKey] = hadBase; else delete Store.state.baseline[tickKey];
 
+  // ---------- re-upload: decks safe, purchased rows preserved on request ----------
+  section('REUPLOAD');
+  const decksBefore = JSON.stringify(Store.state.userdecks.map((d) => ({ n: d.name, c: d.cards.length })));
+  const purchasedBefore = Store.rows().filter((r) => r.b === 'Purchased').length;
+  ok(purchasedBefore >= 2, 'purchased rows exist from the bought-flow test (' + purchasedBefore + ')');
+  const reCsv = 'Name,Set code,Collector number,Quantity,Foil,Binder Name\n"Sol Ring",C21,263,4,normal,Extras\n"Arcane Signet",C21,251,1,normal,Extras\n';
+  const resKeep = Store.uploadCollection(reCsv, 'fresh export', { keepPurchased: true });
+  ok(resKeep.kept === purchasedBefore && Store.rows().filter((r) => r.b === 'Purchased').length === purchasedBefore, 'keepPurchased carries purchases into the new collection');
+  ok(Store.rows().length === 2 + purchasedBefore, 'new export rows plus kept purchases only');
+  ok(JSON.stringify(Store.state.userdecks.map((d) => ({ n: d.name, c: d.cards.length }))) === decksBefore, 'decks completely untouched by re-upload');
+  const resWipe = Store.uploadCollection(reCsv, 'fresh export', { keepPurchased: false });
+  ok(resWipe.kept === 0 && Store.rows().filter((r) => r.b === 'Purchased').length === 0, 'full replace drops purchased rows when told to');
+  ok(JSON.stringify(Store.state.userdecks.map((d) => ({ n: d.name, c: d.cards.length }))) === decksBefore, 'decks still untouched after full replace');
+  Store.importBackup(JSON.parse(fs.readFileSync('C:/Users/keane/Downloads/aether-vault-keanen.json', 'utf8')));
+  Store.addPurchased(missing.slice(0, 2));
+
   // ---------- locked copies: owned cards committed to other decks ----------
   section('LOCKED');
   const tplA = window.VAULT_TEMPLATES.archetypes.find((a) => a.key === 'aristocrats');

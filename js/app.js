@@ -150,10 +150,23 @@ const App = (() => {
       const rd = new FileReader();
       rd.onload = () => {
         try {
-          const count = Store.uploadCollection(rd.result, f.name.replace(/\.csv$/i, ''));
-          UI.toast('Loaded ' + count + ' rows from your export.');
-          go('#/collection', {});
-          render();
+          Store.parseManaBoxCsv(rd.result); // validate before offering choices
+          const label = f.name.replace(/\.csv$/i, '');
+          const doUpload = (keepPurchased) => {
+            try {
+              const res = Store.uploadCollection(rd.result, label, { keepPurchased });
+              UI.toast('Loaded ' + res.rows + ' rows.' + (res.kept ? ' Kept ' + res.kept + ' purchased cards.' : '') + ' Your decks are untouched.');
+              go('#/collection', {});
+              render();
+            } catch (err) { UI.toast(err.message || 'Could not read that CSV.'); }
+          };
+          const purchasedRows = Store.hasCollection() ? Store.rows().filter((r) => r.b === 'Purchased').length : 0;
+          if (purchasedRows > 0) {
+            UI.sheet('This replaces your collection with the new export. You have ' + purchasedRows + ' cards marked Bought in this app. Keep them if you have not scanned them into ManaBox yet.', [
+              { label: 'Replace, keep my ' + purchasedRows + ' purchased cards', cb: () => doUpload(true) },
+              { label: 'Replace completely (they are in the new export)', cb: () => doUpload(false) },
+            ]);
+          } else doUpload(false);
         } catch (err) { UI.toast(err.message || 'Could not read that CSV.'); }
       };
       rd.readAsText(f);

@@ -1804,5 +1804,5 @@ const UI = (() => {
     App.refresh();
   }
 
-  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, viewCoach, viewCollector, wire, hoverPreview, refreshPrices, toast };
+  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, viewCoach, viewCollector, wire, hoverPreview, refreshPrices, toast, sheet };
 })();

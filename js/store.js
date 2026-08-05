@@ -364,13 +364,23 @@ const Store = (() => {
     if (!out.length) throw new Error('No card rows found in that file.');
     return out;
   }
-  function uploadCollection(text, label) {
+  // Replaces the collection with a fresh ManaBox export. Decks are never
+  // touched by this: they live separately and reference cards by name.
+  // keepPurchased carries forward in-app "Purchased" rows the new export
+  // cannot know about yet (bought here, not scanned into ManaBox).
+  function uploadCollection(text, label, opts) {
     const parsed = parseManaBoxCsv(text);
+    let kept = 0;
+    if (opts && opts.keepPurchased && state.mycollection) {
+      for (const r of state.mycollection.rows) {
+        if (r.b === 'Purchased') { parsed.push(r); kept++; }
+      }
+    }
     state.mycollection = { label: label || 'My collection', uploaded: new Date().toISOString(), rows: parsed };
     save(LS.mycollection, state.mycollection);
     buildIndexes();
     touch();
-    return parsed.length;
+    return { rows: parsed.length, kept };
   }
   function clearMyCollection() {
     state.mycollection = null;
