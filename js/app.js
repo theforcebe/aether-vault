@@ -51,7 +51,7 @@ const App = (() => {
     else if (path.startsWith('#/session/')) html = UI.viewSession(path.split('/')[2]);
     else if (path === '#/guide') html = UI.viewGuide();
     else if (path === '#/coach') html = UI.viewCoach();
-    else if (path === '#/collector') html = UI.viewCollector();
+    else if (path === '#/collector') html = UI.viewCollector(params);
     else if (path.startsWith('#/pilot/')) html = UI.viewPilot();
     else if (path === '#/build') html = UI.viewBuild(params);
     else if (path === '#/data') html = UI.viewData();

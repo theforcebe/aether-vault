@@ -404,10 +404,10 @@ const UI = (() => {
           (o.editable
             ? '<span class="qty-ctl"><button class="qb" data-dec="' + esc(c.n) + '" aria-label="One fewer ' + esc(c.n) + '">&minus;</button><span class="d-q">' + c.q + '</span><button class="qb" data-inc="' + esc(c.n) + '" aria-label="One more ' + esc(c.n) + '">+</button></span>'
             : '<span class="d-q">' + c.q + '</span>') +
-          '<span class="d-n" data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
-          (warn ? '<span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
+          '<span class="d-n"><span data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
+          (warn ? ' <span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
           (o.showNeed && !/^(plains|island|swamp|mountain|forest|wastes|snow-covered)/i.test(c.n) && (!Store.byName[Store.norm(c.n)] || Store.byName[Store.norm(c.n)].qty < c.q)
-            ? '<button class="btn small buy-b" data-bought="' + esc(c.n) + '">Bought</button>' : '') +
+            ? ' <button class="btn small buy-b" data-bought="' + esc(c.n) + '">Bought</button>' : '') + '</span>' +
           '<span class="d-p">' + money(Store.cardValue(c.n, sid) * c.q) + tickerHtml(c.n, sid, '') + '</span>' +
           (o.editable
             ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove" aria-label="Remove ' + esc(c.n) + '">&times;</button>'

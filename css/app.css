@@ -740,12 +740,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .ring-big { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
 .ring-of { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .ring-label { font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.7px; color: var(--dim); margin-top: 3px; }
-.mil-shelf { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 10px 0 4px; justify-content: safe center; }
+.mil-shelf { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 10px 2px 4px; }
 .mil-shelf::-webkit-scrollbar { display: none; }
 .mil { flex: none; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 999px; white-space: nowrap; }
 .mil.got { background: var(--accent-soft); color: var(--accent); border: 1px solid #dfe3fb; }
 .mil.locked { background: var(--bg); color: var(--dim); border: 1px dashed var(--line-strong); }
-.qw-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.qw-row { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-top: 8px; padding-bottom: 2px; }
+.qw-row::-webkit-scrollbar { display: none; }
+.qw-row .chip, .qw-row .dim { flex: none; }
 .set-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
 .set-controls input { flex: 1; min-width: 150px; padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 13px; }
 .set-controls select { padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 13px; background: var(--surface); }
@@ -760,4 +762,19 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
   .ring-wrap, .ring { width: 128px; }
   .ring { height: 128px; }
   .ring-big { font-size: 20px; }
+}
+
+/* ---------- v12: mobile deck rows as a strict grid ---------- */
+@media (max-width: 640px) {
+  .d-row {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center; gap: 2px 8px; padding: 8px 2px;
+    border-bottom: 1px solid var(--line); border-radius: 0; cursor: default;
+  }
+  .d-col .d-row:last-child { border-bottom: none; }
+  .d-n { white-space: normal; line-height: 1.35; overflow: visible; }
+  .d-n .buy-b { margin-top: 3px; }
+  .d-p { text-align: right; line-height: 1.25; min-width: 72px; }
+  .d-p .tick { display: block; font-size: 10px; }
+  .qty-ctl { display: inline-flex; align-items: center; gap: 3px; }
 }
