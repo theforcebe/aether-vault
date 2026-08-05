@@ -489,6 +489,15 @@ const UI = (() => {
           (ctx && ctx.editableId ? '<button class="btn small" data-addcard="' + esc(i.n) + '">Add</button>' : '') +
           '</div>').join('') +
         '<div class="page-actions" style="margin-top:10px"><button class="btn primary" data-upgrade="1">Create upgraded build</button></div>' : '') +
+      (r.commanderSignature && r.commanderSignature.length
+        ? '<div class="panel-h sub">Signature cards you are not running</div>' +
+          '<div class="dim" style="margin-bottom:6px">Cards that show up far more in this commander’s decks than anywhere else:</div>' +
+          r.commanderSignature.map((s) =>
+            '<div class="sugg-row" data-hover-sid="' + (s.sid || '') + '">' +
+            '<span class="sugg-n">' + esc(s.n) + '</span>' +
+            '<span class="dim">' + (s.syn > 0 ? '+' + Math.round(s.syn * 100) + '% synergy' : s.inc + '% of decks') + '</span>' +
+            (ctx && ctx.editableId ? '<button class="btn small" data-addcard="' + esc(s.n) + '">Add</button>' : '') +
+            '</div>').join('') : '') +
       (r.suggestions.length ? '<div class="panel-h sub">Suggestions</div>' + r.suggestions.map((s) =>
         '<div class="sugg"><div>' + esc(s.text) + '</div>' +
         (s.picks.length ? '<div class="sig-row">' + s.picks.map((p) => '<span class="badge">' + esc(p) + '</span>').join('') + '</div>' : '') + '</div>').join('') : '') +
@@ -681,6 +690,9 @@ const UI = (() => {
       (res.recommendations && res.recommendations.upgrades.length
         ? '<div class="panel-h sub">Most-played upgrades across ' + res.recommendations.decks + ' real decks</div><div class="sig-row">' +
           res.recommendations.upgrades.map((i) => '<span class="badge buy" data-hover-sid="' + (i.sid || '') + '">' + esc(i.n) + ' ' + Math.round(i.f * 100) + '%' + (i.usd != null ? ' ' + money(i.usd) : '') + '</span>').join('') + '</div>' : '') +
+      (res.recommendations && res.recommendations.signature && res.recommendations.signature.length
+        ? '<div class="panel-h sub">' + esc(res.commander.name) + ' signature cards not in this build</div><div class="sig-row">' +
+          res.recommendations.signature.map((s) => '<span class="badge" data-hover-sid="' + (s.sid || '') + '">' + esc(s.n) + (s.syn > 0 ? ' +' + Math.round(s.syn * 100) + '%' : '') + '</span>').join('') + '</div>' : '') +
       '</section><div class="deck-cols">' + cols + '</div>';
   }
 
@@ -690,7 +702,7 @@ const UI = (() => {
       '<div class="dim">Games end turn ' + x.turn + '.</div><div>' + x.blurb + '</div></div></div>').join('');
     const arch = Rules.ARCHETYPES.map((a) =>
       '<div class="sugg"><strong>' + a.name + '</strong><div class="sig-row">' + a.staples.slice(0, 6).map((s) => '<span class="badge">' + esc(s) + '</span>').join('') + '</div></div>').join('');
-    return '<div class="page-h"><h1>Commander guide</h1></div>' +
+    return '<div class="page-h"><h1>Commander guide</h1><div class="page-actions"><a class="btn" href="#/coach">Bracket coach</a></div></div>' +
       '<section class="panel"><div class="panel-h">The five brackets (October 2025 system)</div>' + b +
       '<p class="dim" style="margin-top:10px">Brackets guide the pregame conversation; they are not laws. The Game Changers list (53 cards as of February 2026) is the shared reference: none in Brackets 1-2, up to three in Bracket 3, unlimited above. Mass land denial and fast two-card combos are Bracket 4 territory. Tutor limits were removed in October 2025; density still shifts how a deck feels.</p></section>' +
       '<section class="panel"><div class="panel-h">Deckbuilding baseline</div><div class="prose">' +
@@ -760,11 +772,77 @@ const UI = (() => {
       '<button class="btn danger" id="data-clear">Clear all local data</button></div></section>';
   }
 
+  // ---------- bracket coach ----------
+  function viewCoach() {
+    const opts = Store.state.userdecks.map((d) => '<option value="' + d.id + '">' + esc(d.name) + '</option>').join('') +
+      Store.state.sessions.map((s) => '<option value="session:' + s.id + '">' + esc(s.name) + ' (imported)</option>').join('');
+    return '<div class="page-h"><h1>Bracket coach</h1></div>' +
+      '<p class="dim">The pregame conversation, prepared: what your deck is, where it lands, and what to say before the first shuffle.</p>' +
+      '<section class="panel"><div class="build-controls">' +
+      '<select id="coach-deck">' + (opts || '<option value="">No decks yet</option>') + '</select>' +
+      '<select id="coach-target"><option value="0">Honest reading</option><option value="2">I want Bracket 2</option><option value="3">I want Bracket 3</option><option value="4">I want Bracket 4</option></select>' +
+      '<button class="btn primary" id="coach-go"' + (opts ? '' : ' disabled') + '>Coach me</button></div>' +
+      '<div id="coach-out"></div></section>';
+  }
+
+  function coachScriptText(dv, r, target) {
+    const gcs = r.gcs || [];
+    const fast = (r.combos || []).filter((p) => Rules.comboIsFast(p));
+    const late = (r.combos || []).filter((p) => !Rules.comboIsFast(p));
+    const winTurn = r.feel >= 5 ? 'any turn it can' : r.feel === 4 ? 'turn 6 or later' : r.feel === 3 ? 'turn 8 or later' : 'turn 9 or later';
+    const lines = [
+      'Pregame pitch for ' + dv.name + (dv.commander ? ' (' + dv.commander + ')' : '') + ':',
+      '',
+      '"I\'m on a ' + (r.brainMatches && r.brainMatches[0] ? r.brainMatches[0].name.toLowerCase() + ' deck' : 'themed deck') +
+        '. By the bracket rules it\'s a ' + r.bracket + (r.feel !== r.bracket ? ', though it plays closer to a ' + r.feel : '') + '.',
+    ];
+    if (gcs.length) lines.push('It runs ' + gcs.length + ' Game Changer' + (gcs.length > 1 ? 's' : '') + ': ' + gcs.join(', ') + '.');
+    else lines.push('No Game Changers.');
+    if (fast.length) lines.push('It has a fast combo finish: ' + fast.map((p) => p.a + ' + ' + p.b).join('; ') + '.');
+    if (late.length && !fast.length) lines.push('It can combo late with ' + late.map((p) => p.a + ' + ' + p.b).join('; ') + ', but that\'s a long game plan, not the plan.');
+    if ((r.mld || []).length) lines.push('Fair warning, it plays mass land denial: ' + r.mld.join(', ') + '.');
+    lines.push('Expect it to try to win around ' + winTurn + '. That fine here?"');
+    if (target && target !== r.bracket) {
+      lines.push('');
+      if (target < r.bracket) {
+        lines.push('To honestly call this a Bracket ' + target + ':');
+        const gcLimit = target === 3 ? 3 : 0;
+        if (gcs.length > gcLimit) lines.push('- Cut ' + (gcs.length - gcLimit) + ' Game Changer' + (gcs.length - gcLimit > 1 ? 's' : '') + ' (' + gcs.slice(gcLimit).join(', ') + ')');
+        if (target <= 3 && fast.length) lines.push('- Break the fast combo' + (fast.length > 1 ? 's' : '') + ': remove one side of ' + fast.map((p) => p.a + ' + ' + p.b).join('; '));
+        if (target === 2 && late.length) lines.push('- Bracket 2 tables expect no intentional two-card combos at all: ' + late.map((p) => p.a + ' + ' + p.b).join('; '));
+        if ((r.mld || []).length) lines.push('- Mass land denial goes: ' + r.mld.join(', '));
+        if (lines[lines.length - 1].startsWith('To honestly')) lines.push('- Nothing structural blocks it; the power feel (' + r.feel + ') is the honest number to say out loud');
+      } else {
+        lines.push('Calling it a Bracket ' + target + ' is fine; nothing about the list under-delivers that promise' +
+          (r.feel < target ? ', though it plays softer (feel ' + r.feel + '), so expect to be the underdog' : '') + '.');
+      }
+    }
+    return lines.join('\n');
+  }
+
   // ---------- pilot guide ----------
   function viewPilot() {
     return '<div class="pilot-bar"><a class="btn" href="javascript:history.back()">Back</a>' +
+      '<button class="btn" id="pilot-cheat">Cheat card</button>' +
       '<button class="btn primary" id="pilot-print">Save as PDF</button></div>' +
       '<div id="pilot-doc" class="pilot-doc"><div class="dim" style="padding:60px;text-align:center">Reading the deck and building your guide...</div></div>';
+  }
+
+  // Deck-box one-pager: the guide compressed to what you glance at mid-game.
+  function pilotCheatHtml(m) {
+    const box = (title, body) => '<div class="ch-box"><div class="ch-t">' + title + '</div>' + body + '</div>';
+    const names = (arr, n) => arr.slice(0, n).map(esc).join(' &middot; ');
+    return '<div class="cheat">' +
+      '<div class="ch-head"><strong>' + esc(m.name) + '</strong><span>' + (m.commander ? esc(m.commander) + ' &middot; ' : '') + 'Bracket ' + m.bracket +
+      (m.subThemes && m.subThemes.length ? ' &middot; ' + m.subThemes.map(esc).join(' + ') : '') + '</span></div>' +
+      '<div class="ch-grid">' +
+      box('Keep a hand with', '<p>' + m.landTarget + ' lands' + (m.engineNames.length ? ' + one of: <strong>' + names(m.engineNames, 3) + '</strong>' : '') + '</p>') +
+      box('The plan', '<p>' + esc(m.plan.split('. ').slice(0, 2).join('. ')) + '.</p>') +
+      box('Protect these', m.keyCards.slice(0, 4).map((k) => '<p><strong>' + esc(k.n) + '</strong></p>').join('')) +
+      box('How you close', '<p>' + (m.combos.length ? m.combos.slice(0, 2).map((p) => esc(p.a + ' + ' + p.b)).join(', ') + (m.finishers.length ? ', or ' : '') : '') + (m.finishers.length ? names(m.finishers, 3) : '') + '</p>') +
+      box('Fear these', '<p>' + (m.hate.length ? names(m.hate, 4) : 'Nothing specific; play around wipes') + '</p>') +
+      box('Remember', '<ul>' + m.tips.slice(0, 3).map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>') +
+      '</div></div>';
   }
 
   function pilotDocHtml(m) {
@@ -790,7 +868,9 @@ const UI = (() => {
     return '<header class="p-head">' +
       '<div class="p-head-l"><div class="p-eyebrow">Pilot guide</div>' +
       '<h1>' + esc(m.name) + '</h1>' +
-      '<div class="p-meta">' + (m.commander ? esc(m.commander) + ' &middot; ' : '') + esc(m.archetype) + ' &middot; Bracket ' + m.bracket + ' ' + esc(m.bracketName) + '</div>' +
+      '<div class="p-meta">' + (m.commander ? esc(m.commander) + ' &middot; ' : '') + esc(m.archetype) +
+      (m.subThemes && m.subThemes.length ? ' &middot; leans ' + m.subThemes.map(esc).join(' + ') : '') +
+      ' &middot; Bracket ' + m.bracket + ' ' + esc(m.bracketName) + '</div>' +
       '<div class="p-stats"><div><span>' + m.count + '</span>cards</div><div><span>' + money(m.value) + '</span>value</div>' +
       '<div><span>' + m.avgMv + '</span>avg mana</div><div><span>' + m.comp.lands + '</span>lands</div></div></div>' +
       (m.commanderSid ? '<img class="p-art" src="' + Scry.img(m.commanderSid, 'normal') + '" alt="">' : '') +
@@ -835,12 +915,49 @@ const UI = (() => {
           const m = Pilot.model(dv, r);
           const doc = $('#pilot-doc');
           if (doc) doc.innerHTML = pilotDocHtml(m);
+          const cb = $('#pilot-cheat', root);
+          if (cb) cb.addEventListener('click', () => {
+            const d2 = $('#pilot-doc');
+            const showingCheat = cb.dataset.on === '1';
+            cb.dataset.on = showingCheat ? '' : '1';
+            cb.textContent = showingCheat ? 'Cheat card' : 'Full guide';
+            if (d2) d2.innerHTML = showingCheat ? pilotDocHtml(m) : pilotCheatHtml(m);
+          });
         } catch (e) {
           const doc = $('#pilot-doc');
           if (doc) doc.innerHTML = '<div class="dim" style="padding:60px;text-align:center">Could not reach Scryfall to analyze this deck. Try again.</div>';
         }
       })();
     }
+    // bracket coach
+    const cg = $('#coach-go', root);
+    if (cg) cg.addEventListener('click', async () => {
+      const sel = $('#coach-deck', root);
+      const tgt = parseInt($('#coach-target', root).value, 10);
+      const out = $('#coach-out', root);
+      let dv;
+      if (sel.value.startsWith('session:')) {
+        const s = Store.state.sessions.find((x) => x.id === sel.value.slice(8));
+        if (!s) return;
+        dv = { name: s.name, commander: '', ci: '', cards: s.cards.map((c) => ({ ...c, src: 'user' })) };
+      } else dv = Store.deckView(sel.value);
+      if (!dv) return;
+      cg.disabled = true;
+      out.innerHTML = '<p class="dim" style="margin-top:12px">Reading the deck...</p>';
+      try {
+        await App.ensureData();
+        const r = await Analyze.run({ cards: dv.cards, ci: dv.ci }, () => {});
+        const txt = coachScriptText(dv, r, tgt);
+        out.innerHTML = '<pre class="coach-script">' + esc(txt) + '</pre>' +
+          '<div class="page-actions"><button class="btn" id="coach-copy">Copy script</button></div>';
+        $('#coach-copy', root).addEventListener('click', () =>
+          navigator.clipboard.writeText(txt).then(() => toast('Copied. Read it before the first shuffle.'), () => toast('Could not access clipboard.')));
+      } catch (e) {
+        out.innerHTML = '<p class="dim" style="margin-top:12px">Could not reach Scryfall to analyze this deck. Try again.</p>';
+      }
+      cg.disabled = false;
+    });
+
     $$('.chip[data-series]', root).forEach((c) => c.addEventListener('click', () => App.go('#/dashboard', { series: c.getAttribute('data-series') })));
     const wsc = $('#ws-clear', root);
     if (wsc) wsc.addEventListener('click', () => sheet('Remove your uploaded collection from this browser?', [
@@ -1347,5 +1464,5 @@ const UI = (() => {
     App.refresh();
   }
 
-  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, wire, hoverPreview, refreshPrices, toast };
+  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, viewCoach, wire, hoverPreview, refreshPrices, toast };
 })();

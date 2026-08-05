@@ -115,6 +115,82 @@ const Pilot = (() => {
     tips: ['Identify the deck\'s engine cards and protect them', 'Sequence the cheapest engine piece first'],
   };
 
+  // Sub-theme overlays layered onto the base book when the list leans a
+  // direction the archetype alone does not capture. Detection is conservative:
+  // type-line counts and short curated name lists; missing data means no overlay.
+  const OVERLAYS = [
+    {
+      key: 'equipment', name: 'Equipment',
+      test: (has, typeN) => typeN('Equipment') >= 6,
+      add: 'The equipment lean changes how removal hits you: they can kill the creature but the gear stays. Value carriers are interchangeable; the equipment is the deck.',
+      tips: ['Equip at the start of combat, after blocks are harder to plan around', 'Spread gear across two bodies once a wipe is likely'],
+      hate: ['Stony Silence', 'Collector Ouphe', 'Kataki, War\'s Wage'],
+    },
+    {
+      key: 'auras', name: 'Auras',
+      test: (has, typeN) => typeN('Aura') >= 7,
+      add: 'Auras pay you off harder than equipment but die with the creature, so protection is not optional; hold it up before you commit two more cards to the stack of one body.',
+      tips: ['Lead with hexproof or ward bodies before stacking auras', 'Do not overcommit into open removal mana; one kill spell should never eat three cards'],
+      hate: ['Board wipes of any kind', 'Cyclonic Rift'],
+    },
+    {
+      key: 'superfriends', name: 'Planeswalkers',
+      test: (has, typeN) => typeN('Planeswalker') >= 5,
+      add: 'Your planeswalkers are the engine, and the table knows it. They die to attention, not to answers, so board presence that blocks is worth more than its stats suggest.',
+      tips: ['Plus loyalty the turn a walker lands unless the minus wins the game', 'Feed the table reasons to attack each other, not your walkers'],
+      hate: ['The Elderspell', 'flying attackers'],
+    },
+    {
+      key: 'vehicles', name: 'Vehicles',
+      test: (has, typeN) => typeN('Vehicle') >= 5,
+      add: 'Vehicles dodge sorcery-speed wipes by sitting parked, and crew costs mean your real curve is higher than it reads. Keep enough bodies to crew or the fleet stalls.',
+      tips: ['Crew after wipes resolve, not before', 'Count crew bodies before you cast another vehicle'],
+      hate: ['instant-speed artifact removal'],
+    },
+    {
+      key: 'reanimator', name: 'Reanimation',
+      test: (has) => has(['Animate Dead', 'Reanimate', 'Necromancy', 'Persist', 'Victimize', 'Living Death', 'Buried Alive', 'Entomb', 'Unburial Rites', 'Dread Return']) >= 2,
+      add: 'The reanimation package means your best card is usually in the graveyard on purpose. Discard and self-mill are card selection, not card loss; the yard is a toolbox the table cannot see clearly.',
+      tips: ['Bin the big target before untapping with reanimation mana, not after', 'Against open white or black mana, reanimate into protection or hold a second target'],
+      hate: ['Rest in Peace', 'Dauthi Voidwalker', 'Bojuka Bog'],
+    },
+    {
+      key: 'treasure', name: 'Treasure',
+      test: (has) => has(['Smothering Tithe', 'Dockside Extortionist', 'Goldspan Dragon', 'Pitiless Plunderer', 'Revel in Riches', 'Brass\'s Bounty', 'Academy Manufactor', 'Storm-Kiln Artist', 'Xorn']) >= 3,
+      add: 'Treasure is your ramp, your fixing, and sometimes your win. Bank tokens across turns for one explosive double-spell turn rather than spending each as it arrives.',
+      tips: ['Crack treasures at instant speed; they are also protection from Dockside math', 'Watch for artifact wipes before banking ten treasures into one board state'],
+      hate: ['Vandalblast', 'Farewell'],
+    },
+    {
+      key: 'mill', name: 'Mill',
+      test: (has) => has(['Ruin Crab', 'Hedron Crab', 'Maddening Cacophony', 'Mesmeric Orb', 'Bruvac the Grandiloquent', 'Fleet Swallower', 'Traumatize', 'Sphinx\'s Tutelage']) >= 2,
+      add: 'Mill scales with opponents but feeds graveyard decks; know when your engine is helping someone else and pivot targets accordingly.',
+      tips: ['Mill the player without graveyard synergies; the reanimator thanks you otherwise', 'Track libraries; the kill is exact, not approximate'],
+      hate: ['Eldrazi titan shuffle triggers'],
+    },
+    {
+      key: 'combats', name: 'Extra combats',
+      test: (has) => has(['Moraug, Fury of Akoum', 'Combat Celebrant', 'Aggravated Assault', 'Seize the Day', 'Karlach, Fury of Avernus', 'Port Razer', 'Scourge of the Throne', 'Response // Resurgence']) >= 2,
+      add: 'Extra combat steps double everything your attackers do, including their triggers. One clean board plus one extra combat is usually a kill from an empty-looking table.',
+      tips: ['Count damage across all combats before declaring the first one', 'Untap effects on lands or creatures compound with each combat'],
+      hate: ['fog effects', 'instant-speed wipes mid-combat'],
+    },
+    {
+      key: 'poison', name: 'Poison',
+      test: (has) => has(['Triumph of the Hordes', 'Fynn, the Fangbearer', 'Skrelv, Defector Mite', 'Blightsteel Colossus', 'Ichorclaw Myr', 'Phyresis Outbreak', 'Prologue to Phyresis']) >= 2,
+      add: 'Ten poison ends a player regardless of life total, and the table remembers that the moment the first counter lands. Poison draws hate disproportionate to the board; time it as a finisher, not an opener.',
+      tips: ['Deploy poison as a surprise lethal, not early chip damage', 'Proliferate closes faster than combat once counters are seeded'],
+      hate: ['proliferate hate is rare; expect table aggression instead'],
+    },
+    {
+      key: 'taxes', name: 'Taxes',
+      test: (has) => has(['Winter Orb', 'Static Orb', 'Rule of Law', 'Thalia, Guardian of Thraben', 'Grand Arbiter Augustin IV', 'Drannith Magistrate', 'Archon of Emeria', 'Blind Obedience', 'Sphere of Safety', 'Ghostly Prison', 'Propaganda']) >= 3,
+      add: 'Your tax pieces buy turns, not wins; the deck still needs its actual plan online before the table dismantles the locks. Sequence taxes to slow the fastest opponent, not the closest one.',
+      tips: ['Deploy asymmetric taxes first, symmetric ones only when ahead', 'Know your own outs; taxes that stall your win too are a loss condition'],
+      hate: ['enchantment and artifact wipes', 'the whole table, eventually'],
+    },
+  ];
+
   function keyOf(archName) {
     const t = window.VAULT_TEMPLATES;
     if (!t) return null;
@@ -133,8 +209,21 @@ const Pilot = (() => {
     if (B && archKey && B.archetypes[archKey]) {
       for (const bc of B.archetypes[archKey].cards) brainF[Store.norm(bc.n)] = bc.f;
     }
-    const book = PLAYBOOK[archKey] || DEFAULT_BOOK;
+    const baseBook = PLAYBOOK[archKey] || DEFAULT_BOOK;
     const archName = (r.brainMatches && r.brainMatches[0] ? r.brainMatches[0].name : (r.archetypes[0] || {}).name) || 'Commander';
+
+    // sub-theme overlays: layer detected leans onto the base book
+    const deckNames = new Set(cards.map((c) => lower(c.n)));
+    const has = (list) => list.filter((n) => deckNames.has(lower(n))).length;
+    const typeN = (t) => cards.reduce((s, c) => { const f = facts(c.n); return s + (f && f.t.includes(t) ? c.q : 0); }, 0);
+    const subThemes = OVERLAYS.filter((o) => { try { return o.test(has, typeN); } catch (e) { return false; } }).slice(0, 2);
+    const book = subThemes.length ? {
+      plan: baseBook.plan + ' ' + subThemes.map((o) => o.add).join(' '),
+      strong: baseBook.strong,
+      weak: baseBook.weak,
+      hate: [...new Set([...baseBook.hate, ...subThemes.flatMap((o) => o.hate)])],
+      tips: [...baseBook.tips, ...subThemes.flatMap((o) => o.tips)].slice(0, 7),
+    } : baseBook;
 
     const nonland = cards.filter((c) => { const f = facts(c.n); return !f || !f.t.includes('Land'); });
     const byFreq = nonland
@@ -214,8 +303,9 @@ const Pilot = (() => {
       strengths, weaknesses,
       hate: book.hate,
       tips: book.tips,
+      subThemes: subThemes.map((o) => o.name),
     };
   }
 
-  return { model, PLAYBOOK };
+  return { model, PLAYBOOK, OVERLAYS };
 })();

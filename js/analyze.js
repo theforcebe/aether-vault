@@ -223,6 +223,11 @@ const Analyze = (() => {
       bracket, feel, why, power: Math.round(power * 10) / 10,
       archetypes: arch.slice(0, 4), suggestions, cuts: cuts.map((c) => ({ n: c.n, mv: c.mv })),
       brainMatches, brainSuggestions, similarDecks,
+      commanderSignature: (() => {
+        const cmdRow = cards.find((c) => c.src === 'commander');
+        if (!cmdRow || typeof Builder === 'undefined' || !Builder.signatureFor) return [];
+        return Builder.signatureFor(cmdRow.n, new Set(cards.map((c) => Store.norm(c.n))), 8);
+      })(),
     };
   }
 

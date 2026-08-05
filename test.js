@@ -200,9 +200,28 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   }
   Object.assign(window, { VAULT_BRAIN: saved.b, VAULT_TEMPLATES: saved.t, VAULT_VECTORS: saved.v, VAULT_COMMANDERS: saved.c });
 
+  // ---------- micro-brains + coach ----------
+  section('CMDCARDS');
+  const CC = window.VAULT_CMDCARDS;
+  ok(CC && Object.keys(CC.cmds).length >= 600, 'micro-brains cover 600+ commanders (' + (CC && Object.keys(CC.cmds).length) + ')');
+  const sig = Builder.signatureFor('Meren of Clan Nel Toth', new Set(), 8);
+  ok(sig.length === 8 && sig.every((s) => s.n && (s.syn > 0 || s.inc > 0)), 'signatureFor returns scored cards');
+  const sigEx = Builder.signatureFor('Meren of Clan Nel Toth', new Set([Store.norm(sig[0].n)]), 8);
+  ok(!sigEx.some((s) => s.n === sig[0].n), 'signatureFor respects exclusions');
+  ok(rep.commanderSignature && rep.commanderSignature.length > 0, 'analyzer surfaces commander signature cards');
+  const coachViews = UI.viewCoach();
+  ok(typeof coachViews === 'string' && coachViews.includes('coach-deck'), 'coach view renders');
+
   // ---------- pilot model ----------
   section('PILOT');
   const pm = Pilot.model(Store.deckView(deckId), rep);
+  ok(Array.isArray(pm.subThemes), 'pilot exposes sub-themes');
+  ok(Pilot.OVERLAYS.length >= 10, '10 sub-archetype overlays authored (' + Pilot.OVERLAYS.length + ')');
+  const eqO = Pilot.OVERLAYS.find((o) => o.key === 'equipment');
+  ok(eqO && eqO.test(() => 0, (t) => (t === 'Equipment' ? 7 : 0)), 'equipment overlay triggers on type count');
+  const reO = Pilot.OVERLAYS.find((o) => o.key === 'reanimator');
+  ok(reO && reO.test((list) => list.filter((n) => ['Animate Dead', 'Reanimate'].includes(n)).length, () => 0), 'reanimator overlay triggers on names');
+  ok(Pilot.OVERLAYS.every((o) => o.add && o.tips.length >= 2), 'every overlay carries plan text and tips');
   ok(pm && /^\d to \d$/.test(pm.landTarget), 'pilot opening-hand land guidance present (' + (pm && pm.landTarget) + ')');
   ok(pm.keyCards && pm.keyCards.length >= 3, 'pilot key cards identified');
   ok(pm.plan && pm.plan.length > 40, 'pilot has a game plan');

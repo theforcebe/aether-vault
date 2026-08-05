@@ -268,7 +268,7 @@ const Builder = (() => {
 
     // brain recommendations: what real decks of this theme play
     const brain = brainFor(opts.archKey);
-    const recommendations = { ownedPopular: [], upgrades: [], decks: brain ? brain.decks : 0 };
+    const recommendations = { ownedPopular: [], upgrades: [], decks: brain ? brain.decks : 0, signature: signatureFor(cmd.name, used, 10) };
     if (brain) {
       for (const bc of brain.cards) {
         const k = Store.norm(bc.n);
@@ -378,6 +378,24 @@ const Builder = (() => {
     return cmp.rows.filter((r) => r.need > 0).map((r) => r.need + ' ' + r.n).join('\n');
   }
 
+  // Signature cards for a specific commander from the micro-brain bake:
+  // EDHREC synergy (how much more often this card appears in this commander's
+  // decks than in the format) plus inclusion rate. Empty until data loads.
+  function signatureFor(name, excludeKeys, limit) {
+    const CC = window.VAULT_CMDCARDS;
+    if (!CC || !name) return [];
+    const c = findCommander(name);
+    if (!c || !CC.cmds[c.slug]) return [];
+    const out = [];
+    for (const [idx, syn, inc] of CC.cmds[c.slug]) {
+      const n = CC.names[idx];
+      if (excludeKeys && excludeKeys.has(Store.norm(n))) continue;
+      out.push({ n, syn, inc, sid: Store.sidFor(n) || '' });
+      if (out.length >= (limit || 8)) break;
+    }
+    return out;
+  }
+
   // Fill an under-99 user deck with the benchmark-adopted ranker: best-match
   // archetype staples scored f*0.65 + cos*0.35, color-filtered, lands topped
   // up to what real decks of the theme run. Returns a proposal, mutates nothing.
@@ -437,5 +455,5 @@ const Builder = (() => {
     return { adds, basics, needed, archetype: bestKey, matchScore: bestS, landTarget };
   }
 
-  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor, allCommanders, findCommander, fittingArchetypes, completeMyDeck };
+  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor, allCommanders, findCommander, fittingArchetypes, completeMyDeck, signatureFor };
 })();
