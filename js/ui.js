@@ -1013,7 +1013,7 @@ const UI = (() => {
             $('#bld-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         } catch (e) {
-          status.textContent = 'Build hit an error reaching Scryfall. Try again.';
+          status.textContent = /fetch|network|http/i.test(e.message || '') ? 'Could not reach Scryfall. Try again.' : 'Build failed: ' + (e.message || 'unknown error');
         }
         goB.disabled = false;
       });

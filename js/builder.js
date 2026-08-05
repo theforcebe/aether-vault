@@ -211,13 +211,15 @@ const Builder = (() => {
       for (const p of Rules.COMBO_PAIRS) {
         const isFast = p.mvSum <= 6;
         if (bracket === 3 && !isFast) continue;
-        if (names.has(lower(p.a)) && names.has(lower(p.b))) {
-          const ia = cards.findIndex((c) => lower(c.n) === lower(p.a));
-          const ib = cards.findIndex((c) => lower(c.n) === lower(p.b));
-          const pick = (cards[ia].role === 'none' ? ia : cards[ib].role === 'none' ? ib : ((cards[ia].usd || 0) > (cards[ib].usd || 0) ? ia : ib));
-          replace(pick, 'breaks the ' + p.a + ' + ' + p.b + ' combo for Bracket ' + bracket);
-          names.delete(lower(cards[pick].n));
-        }
+        if (!names.has(lower(p.a)) || !names.has(lower(p.b))) continue;
+        const ia = cards.findIndex((c) => lower(c.n) === lower(p.a));
+        const ib = cards.findIndex((c) => lower(c.n) === lower(p.b));
+        if (ia < 0 || ib < 0) continue; // half already swapped out by an earlier rule
+        const pick = (cards[ia].role === 'none' ? ia : cards[ib].role === 'none' ? ib : ((cards[ia].usd || 0) > (cards[ib].usd || 0) ? ia : ib));
+        const removed = lower(cards[pick].n);
+        replace(pick, 'breaks the ' + p.a + ' + ' + p.b + ' combo for Bracket ' + bracket);
+        names.delete(removed);
+        names.add(lower(cards[pick].n));
       }
     }
 
