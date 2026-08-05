@@ -66,6 +66,6 @@ Work proceeds top to bottom; the morning report states exactly what shipped.
 - [x] Bracket coach page: analyzer-backed quiz + pregame script
 
 ## Block G: Close-out
-- [ ] Polish sweep from any issues found during the night
-- [ ] ROADMAP.md progress strikethroughs; CHANGELOG entry
-- [ ] Memory update; morning report with exactly what shipped and what did not
+- [x] Polish sweep: final full-suite run (77 checks) + all 24 live assets verified 200
+- [x] ROADMAP.md progress note; CHANGELOG entry
+- [x] Memory update; morning report delivered
