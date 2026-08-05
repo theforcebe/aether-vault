@@ -1150,5 +1150,5 @@ const UI = (() => {
     App.refresh();
   }
 
-  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, wire, hoverPreview, refreshPrices, toast };
+  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, wire, hoverPreview, refreshPrices, toast };
 })();
