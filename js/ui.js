@@ -875,7 +875,13 @@ const UI = (() => {
       '<div class="chips" style="margin:0 0 4px">' +
       '<a class="chip ' + (mode === 'cards' ? 'on' : '') + '" href="#/collector' + (showAll ? '?all=1' : '') + '">Unique cards</a>' +
       '<a class="chip ' + (mode === 'prints' ? 'on' : '') + '" href="#/collector?mode=prints' + (showAll ? '&all=1' : '') + '">All printings</a></div>';
+    const leaderboardPanel = '<section class="panel"><div class="panel-h">Leaderboard</div>' +
+      (Sync.enabled()
+        ? '<div id="lb-slot"><p class="dim">Checking the circle...</p></div>'
+        : '<p class="dim">The leaderboard lives in your sync circle. Set up sync on the Data page, then join from there.</p>') +
+      '</section>';
     return '<div class="page-h"><h1>Collector</h1></div>' + modeChips +
+      leaderboardPanel +
       '<section class="panel collector-hero">' +
       '<div class="hero-title">' + overallTitle(prog) + '</div>' +
       '<div class="ring-pair">' +
@@ -909,11 +915,6 @@ const UI = (() => {
       (showAll
         ? '<div class="page-actions" style="margin-top:10px"><a class="btn small" href="#/collector' + (mode === 'prints' ? '?mode=prints' : '') + '">Show only my sets</a></div>'
         : '<div class="page-actions" style="margin-top:10px"><a class="btn small" href="#/collector?' + (mode === 'prints' ? 'mode=prints&' : '') + 'all=1">Show all ' + rest.length + ' remaining sets</a></div>') +
-      '</section>' +
-      '<section class="panel"><div class="panel-h">Leaderboard</div>' +
-      (Sync.enabled()
-        ? '<div id="lb-slot"><p class="dim">Checking the circle...</p></div>'
-        : '<p class="dim">The leaderboard lives in your sync circle. Set up sync on the Data page, then join from there; standings show everyone who opted in.</p>') +
       '</section>';
   }
 
@@ -922,7 +923,7 @@ const UI = (() => {
       return '<p class="dim">Nobody on the board yet.' + (Sync.boardOn() ? ' Your entry appears after your next sync.' : ' Join from the Data page sync panel.') + '</p>';
     }
     const meSlug = (Sync.meta() || {}).slug;
-    return entries.map((e, i) => {
+    const row = (e, i) => {
       const me = e.slug === meSlug;
       return '<div class="lb-row' + (me ? ' me' : '') + '">' +
         '<span class="lb-rank' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span>' +
@@ -930,8 +931,17 @@ const UI = (() => {
         '<span class="lb-title">' + esc(e.title || '') + '</span></span>' +
         '<span class="lb-nums"><strong>' + (e.cards || 0).toLocaleString() + '</strong> cards' +
         '<span class="dim">' + (e.prints || 0).toLocaleString() + ' printings' + (e.masters ? ', ' + e.masters + ' mastered' : '') + '</span></span></div>';
-    }).join('') +
-    '<div class="dim" style="margin-top:8px">Ranked by distinct cards. Standings update as people sync.</div>';
+    };
+    const top = entries.slice(0, 3).map(row).join('');
+    const rest = entries.slice(3);
+    const myIdx = entries.findIndex((e) => e.slug === meSlug);
+    return top +
+      (rest.length
+        ? '<div id="lb-more" hidden>' + rest.map((e, i) => row(e, i + 3)).join('') + '</div>' +
+          '<div class="page-actions" style="margin-top:8px"><button class="btn small" id="lb-toggle">View all ' + entries.length +
+          (myIdx >= 3 ? ' (you are #' + (myIdx + 1) + ')' : '') + '</button></div>'
+        : '') +
+      '<div class="dim" style="margin-top:8px">Ranked by distinct cards. Standings update as people sync.</div>';
   }
 
   async function fetchSetCards(code, mode) {
@@ -1127,7 +1137,15 @@ const UI = (() => {
       const lbSlot = $('#lb-slot', root);
       if (lbSlot && Sync.enabled()) {
         Sync.fetchBoard()
-          .then((entries) => { lbSlot.innerHTML = leaderboardHtml(entries); })
+          .then((entries) => {
+            lbSlot.innerHTML = leaderboardHtml(entries);
+            const tg = lbSlot.querySelector('#lb-toggle');
+            const more = lbSlot.querySelector('#lb-more');
+            if (tg && more) tg.addEventListener('click', () => {
+              more.hidden = !more.hidden;
+              tg.textContent = more.hidden ? 'View all ' + entries.length : 'Show top 3';
+            });
+          })
           .catch(() => { lbSlot.innerHTML = '<p class="dim">Could not reach the circle. Check your connection and token.</p>'; });
       }
       const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
