@@ -124,6 +124,7 @@ const App = (() => {
 
     render();
     heal();
+    setInterval(() => { try { Sync.autosyncTick(); } catch (e) { /* quiet */ } }, 5000);
   }
 
   return { boot, render, refresh: render, go };

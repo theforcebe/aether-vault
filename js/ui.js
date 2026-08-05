@@ -631,6 +631,24 @@ const UI = (() => {
       ', Commander Spellbook combo database, and standard community deckbuilding templates.</p></section>';
   }
 
+  function syncPanelHtml() {
+    const id = Sync.identity();
+    const m = Sync.meta();
+    if (Sync.enabled()) {
+      return '<section class="panel"><div class="panel-h">Sync</div>' +
+        '<p class="dim">Signed in as <strong>' + esc(id.name) + '</strong>. Vault syncs encrypted to a private repo; only your name plus PIN can open it.' +
+        (m.lastPush ? ' Last push ' + Math.round((Date.now() - m.lastPush) / 60000) + ' min ago.' : '') + '</p>' +
+        '<div class="page-actions"><button class="btn primary" id="sync-push">Push now</button>' +
+        '<button class="btn" id="sync-pull">Pull from cloud</button>' +
+        '<button class="btn" id="sync-out">Sign out on this device</button></div></section>';
+    }
+    return '<section class="panel"><div class="panel-h">Sync across devices</div>' +
+      '<p class="dim">Your vault encrypts in this browser with a key from your name plus PIN, then syncs to a private repo. The access token comes from Keanen personally; the PIN is the only thing that opens your data, and a lost PIN cannot be recovered.</p>' +
+      '<div class="row"><input id="sync-name" placeholder="Your name"><input id="sync-pin" placeholder="PIN, 4 to 8 digits" inputmode="numeric" type="password"></div>' +
+      '<div class="row"><input id="sync-token" placeholder="Access token" type="password"><button class="btn primary" id="sync-enable">Enable sync</button></div>' +
+      '<div id="sync-status" class="dim"></div></section>';
+  }
+
   function viewData() {
     const stats = Store.storageStats();
     const totalBytes = stats.reduce((s, x) => s + x.bytes, 0);
@@ -640,6 +658,7 @@ const UI = (() => {
       ? 'Last backup ' + Math.round((Date.now() - b.last) / 36e5) + ' hours ago' + (b.dirty ? ', with ' + b.dirty + ' changes since.' : '.')
       : (b.hasData ? 'No backup yet this browser. Download one.' : 'Nothing to back up yet.');
     return '<div class="page-h"><h1>Data</h1></div>' +
+      syncPanelHtml() +
       '<section class="panel"><div class="panel-h">Backup</div>' +
       '<p class="' + (b.dirty || !b.last ? 'warn-text' : 'dim') + '">' + backupLine + '</p>' +
       '<div class="page-actions"><button class="btn primary" id="data-backup">Download backup</button>' +
@@ -1083,6 +1102,46 @@ const UI = (() => {
       const d = Store.createUserDeck(s.name, s.cards);
       location.hash = '#/mydeck/' + d.id;
     });
+
+    // sync panel
+    const se2 = $('#sync-enable', root);
+    if (se2) se2.addEventListener('click', async () => {
+      const status = $('#sync-status', root);
+      try {
+        status.textContent = 'Checking...';
+        const res = await Sync.enable($('#sync-name', root).value, $('#sync-pin', root).value, $('#sync-token', root).value.trim());
+        if (res.found) {
+          sheet('A vault already exists for this name and PIN.', [
+            { label: 'Load the cloud vault onto this device', cb: () => { Sync.applyCloud(res.cloud); toast('Cloud vault loaded.'); App.refresh(); } },
+            { label: 'Overwrite cloud with this device', cb: async () => { await Sync.push(); toast('Cloud vault replaced.'); App.refresh(); } },
+          ]);
+        } else {
+          await Sync.push();
+          toast('Sync enabled. First push done.');
+          App.refresh();
+        }
+      } catch (e) { status.textContent = e.message; }
+    });
+    const sp = $('#sync-push', root);
+    if (sp) sp.addEventListener('click', async () => {
+      sp.disabled = true;
+      try { await Sync.push(); toast('Pushed.'); App.refresh(); } catch (e) { toast(e.message); }
+      sp.disabled = false;
+    });
+    const spl = $('#sync-pull', root);
+    if (spl) spl.addEventListener('click', async () => {
+      spl.disabled = true;
+      try {
+        const cloud = await Sync.pull();
+        if (!cloud) toast('Nothing in the cloud yet.');
+        else sheet('Replace this device\'s vault with the cloud copy?', [
+          { label: 'Yes, load cloud vault', cb: () => { Sync.applyCloud(cloud); toast('Loaded.'); App.refresh(); } }]);
+      } catch (e) { toast(e.message); }
+      spl.disabled = false;
+    });
+    const so = $('#sync-out', root);
+    if (so) so.addEventListener('click', () => sheet('Sign out of sync on this device? Local data stays.', [
+      { label: 'Sign out', cb: () => { Sync.signOut(); toast('Signed out.'); App.refresh(); } }]));
 
     const dr = $('#data-refresh', root);
     if (dr) dr.addEventListener('click', () => refreshPrices(dr));
