@@ -197,12 +197,15 @@ const Builder = (() => {
     // bracket shaping
     const bracket = opts.bracket || 3;
     const gcLimit = bracket >= 4 ? Infinity : bracket === 3 ? 3 : 0;
-    let gcIdx = cards.map((c, i) => ({ c, i })).filter((x) => x.c.gc);
-    if (gcIdx.length > gcLimit) {
+    const isGc = (c) => !!c.gc || Rules.GC.has(lower(c.n)); // never trust baked flags alone
+    function enforceGcLimit() {
+      if (gcLimit === Infinity) return;
+      const gcIdx = cards.map((c, i) => ({ c, i })).filter((x) => isGc(x.c));
+      if (gcIdx.length <= gcLimit) return;
       gcIdx.sort((x, y) => ((x.c.role === 'none' ? 0 : 1) - (y.c.role === 'none' ? 0 : 1)) || ((y.c.usd || 0) - (x.c.usd || 0)));
-      const excess = gcIdx.slice(0, gcIdx.length - (gcLimit === Infinity ? gcIdx.length : gcLimit));
-      for (const x of excess) replace(x.i, 'Game Changer over the Bracket ' + bracket + ' limit');
+      for (const x of gcIdx.slice(0, gcIdx.length - gcLimit)) replace(x.i, 'Game Changer over the Bracket ' + bracket + ' limit');
     }
+    enforceGcLimit();
     if (bracket <= 3) {
       for (const [i, c] of cards.entries()) {
         if (Rules.MLD.has(lower(c.n))) replace(i, 'mass land denial is Bracket 4 territory');
@@ -281,6 +284,32 @@ const Builder = (() => {
       }
     }
 
+    // substitutions can sneak a Game Changer back in; enforce once more
+    enforceGcLimit();
+
+    // exact-99 guarantee: averaged templates occasionally run a few cards short
+    let total99 = cards.reduce((s, c) => s + c.q, 0);
+    if (total99 < 99) {
+      const basics = [...ci].map((x) => BASIC_FOR[x]).filter(Boolean);
+      let bi = 0;
+      while (total99 < 99) {
+        const bn = basics.length ? basics[bi++ % basics.length] : 'Wastes';
+        const row = cards.find((c) => c.n === bn);
+        if (row) row.q++;
+        else cards.push({ n: bn, q: 1, sid: '', usd: 0, mv: 0, ci: '', t: 'Basic Land', role: 'land', gc: 0, basic: 1, status: 'basic' });
+        total99++;
+      }
+      notes.push('Topped up to 99 with basic lands.');
+    } else if (total99 > 99) {
+      const order = cards.map((c) => c).filter((c) => !c.basic).sort((a, b) => ((a.role === 'none' ? 0 : 1) - (b.role === 'none' ? 0 : 1)) || ((a.usd || 0) - (b.usd || 0)));
+      let oi = 0;
+      while (total99 > 99 && oi < order.length) {
+        const c = order[oi];
+        if (c.q > 1) { c.q--; total99--; }
+        else { cards.splice(cards.indexOf(c), 1); total99--; oi++; }
+      }
+    }
+
     const buy = cards.filter((c) => c.status === 'buy');
     const stats = {
       commander: cmd.name, ci, bracket,
@@ -291,7 +320,7 @@ const Builder = (() => {
       basicCount: cards.filter((c) => c.status === 'basic').reduce((s, c) => s + c.q, 0),
       buyCount: buy.reduce((s, c) => s + c.q, 0),
       commanderOwned: !!(opts.useCollection && Store.byName[Store.norm(cmd.name)]),
-      gcs: cards.filter((c) => c.gc).map((c) => c.n),
+      gcs: cards.filter((c) => isGc(c)).map((c) => c.n),
     };
     return { archetype: archName, commander: cmd, cards, notes, stats, recommendations };
   }

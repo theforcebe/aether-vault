@@ -675,8 +675,18 @@ const UI = (() => {
       '<p><strong>Privacy.</strong> Nothing leaves this browser except calls to api.scryfall.com and its image CDN.</p></div></section>' +
       '<section class="panel"><div class="panel-h">Stored in this browser</div>' +
       stats.map((s) => '<div class="mover"><span>' + s.label + '</span><span class="dim">' + (s.bytes / 1024).toFixed(1) + ' KB</span></div>').join('') +
-      '<div class="mover"><span><strong>Total</strong></span><span><strong>' + (totalBytes / 1024).toFixed(1) + ' KB</strong></span></div>' +
+      '<div class="mover"><span><strong>Total</strong></span><span><strong>' + (totalBytes / 1024).toFixed(1) + ' KB</strong>' +
+      (totalBytes > 4 * 1024 * 1024 ? ' <span class="warn-text">near the browser limit</span>' : '') + '</span></div>' +
+      (totalBytes > 4 * 1024 * 1024 ? '<div class="page-actions" style="margin-top:8px"><button class="btn small" id="prune-caches">Prune rebuildable caches</button></div>' : '') +
       '<div class="dim" style="margin-top:8px">' + (age == null ? 'No live prices yet.' : 'Prices last refreshed ' + age.toFixed(1) + ' hours ago.') + '</div></section>' +
+      '<section class="panel"><div class="panel-h">Data freshness</div>' +
+      (window.VAULT_MANIFEST ? Object.entries(window.VAULT_MANIFEST.files).filter(([, v]) => v.kb > 1).map(([f, v]) =>
+        '<div class="mover"><span>' + f.replace('.js', '') + '</span><span class="dim">' + v.kb + ' KB, built ' + v.built +
+        ((Date.now() - new Date(v.built).getTime()) > 60 * 864e5 ? ' <span class="warn-text">stale</span>' : '') + '</span></div>').join('')
+        : '<div class="dim">No manifest.</div>') + '</section>' +
+      '<section class="panel"><div class="panel-h">Diagnostics</div>' +
+      '<p class="dim">If something misbehaves, copy this and send it to Keanen.</p>' +
+      '<div class="page-actions"><button class="btn small" id="copy-diag">Copy diagnostics</button></div></section>' +
       '<section class="panel"><div class="panel-h">Tools</div><div class="page-actions wrap">' +
       '<button class="btn" id="data-refresh">Refresh prices</button>' +
       '<label class="btn" for="file-csv">Upload ManaBox CSV</label>' +
@@ -1155,6 +1165,28 @@ const UI = (() => {
     if (db) db.addEventListener('click', () => { Store.exportBackup(); toast('Backup downloaded.'); App.refresh(); });
     const dc = $('#data-clear', root);
     if (dc) dc.addEventListener('click', () => sheet('Erase everything stored in this browser?', [{ label: 'Erase local data', cb: () => Store.clearLocalData() }]));
+    const pr = $('#prune-caches', root);
+    if (pr) pr.addEventListener('click', () => {
+      let freed = 0;
+      for (const k of Object.keys(localStorage)) {
+        if (k === 'av_oracle' || k.startsWith('av_tpl_')) { freed += (localStorage.getItem(k) || '').length; localStorage.removeItem(k); }
+      }
+      toast('Freed ' + (freed / 1024).toFixed(0) + ' KB. Caches rebuild themselves as needed.');
+      App.refresh();
+    });
+    const cd = $('#copy-diag', root);
+    if (cd) cd.addEventListener('click', () => {
+      const errs = (() => { try { return JSON.parse(localStorage.getItem('av_errors') || '[]'); } catch (e) { return []; } })();
+      const diag = [
+        'Aether Vault diagnostics ' + new Date().toISOString(),
+        'UA: ' + navigator.userAgent,
+        'Storage: ' + Store.storageStats().map((s) => s.label + '=' + (s.bytes / 1024).toFixed(0) + 'KB').join(', '),
+        'Data: ' + (window.VAULT_MANIFEST ? JSON.stringify(window.VAULT_MANIFEST.files) : 'no manifest'),
+        'Decks: ' + Store.state.userdecks.length + ', collection rows: ' + Store.rows().length + ', sync: ' + (Sync.enabled() ? 'on' : 'off'),
+        'Recent errors:', ...errs.map((e) => '  ' + e),
+      ].join('\n');
+      navigator.clipboard.writeText(diag).then(() => toast('Diagnostics copied.'), () => toast('Could not access clipboard.'));
+    });
 
     $$('.c-card .card-img, .list-row .thumb', root).forEach((el) => {
       el.addEventListener('click', () => {

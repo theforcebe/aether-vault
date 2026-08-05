@@ -95,6 +95,17 @@ const App = (() => {
     window.addEventListener('hashchange', render);
     UI.hoverPreview();
 
+    // error ring buffer for the diagnostics panel
+    const logErr = (msg) => {
+      try {
+        const errs = JSON.parse(localStorage.getItem('av_errors') || '[]');
+        errs.push(new Date().toISOString().slice(11, 19) + ' ' + String(msg).slice(0, 300));
+        localStorage.setItem('av_errors', JSON.stringify(errs.slice(-20)));
+      } catch (e) { /* full */ }
+    };
+    window.addEventListener('error', (e) => logErr((e.message || 'error') + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno));
+    window.addEventListener('unhandledrejection', (e) => logErr('promise: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+
     document.getElementById('btn-prices').addEventListener('click', (e) => UI.refreshPrices(e.currentTarget));
     document.getElementById('m-prices').addEventListener('click', (e) => UI.refreshPrices(e.currentTarget));
     document.getElementById('m-backup').addEventListener('click', () => { Store.exportBackup(); UI.toast('Backup downloaded.'); render(); });
