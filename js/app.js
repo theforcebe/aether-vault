@@ -72,7 +72,28 @@ const App = (() => {
 
     const b = Store.backupState();
     const dot = document.getElementById('backup-dot');
-    dot.style.display = b.hasData && (b.dirty > 0 || !b.last) ? 'inline-block' : 'none';
+    const dotOn = b.hasData && (b.dirty > 0 || !b.last);
+    dot.style.display = dotOn ? 'inline-block' : 'none';
+
+    // mobile tab bar
+    document.querySelectorAll('.tabbar a').forEach((a) => {
+      const href = a.getAttribute('data-tab');
+      const active = href === path ||
+        (href === '#/decks' && (path.startsWith('#/mydeck/') || path.startsWith('#/session/') || path.startsWith('#/deck/') || path.startsWith('#/pilot/'))) ||
+        (href === '#/dashboard' && (path === '#/' || path === '' || path === '#/vault'));
+      a.classList.toggle('active', active);
+      if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+    });
+    const moreBtn = document.getElementById('tab-more');
+    const morePop = document.getElementById('tab-more-pop');
+    if (moreBtn) moreBtn.classList.toggle('active', ['#/import', '#/guide', '#/moves', '#/data'].includes(path));
+    if (morePop) { morePop.hidden = true; if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false'); }
+    const tmc = document.getElementById('tab-moves-count');
+    if (tmc) tmc.textContent = n ? String(n) : '';
+    const tdd = document.getElementById('tab-data-dot');
+    if (tdd) tdd.style.display = dotOn ? 'inline-block' : 'none';
+    const tmd = document.getElementById('tab-more-dot');
+    if (tmd) tmd.style.display = dotOn || n ? 'inline-block' : 'none';
 
     // gentle backup reminder once per session after real changes accumulate
     if (!remindedThisSession && b.dirty >= 6) {
@@ -148,6 +169,25 @@ const App = (() => {
         }
       }
     });
+
+    // mobile More pop
+    const moreBtn = document.getElementById('tab-more');
+    const morePop = document.getElementById('tab-more-pop');
+    if (moreBtn && morePop) {
+      moreBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        morePop.hidden = !morePop.hidden;
+        moreBtn.setAttribute('aria-expanded', String(!morePop.hidden));
+      });
+      document.addEventListener('click', (e) => {
+        if (!morePop.hidden && !morePop.contains(e.target)) { morePop.hidden = true; moreBtn.setAttribute('aria-expanded', 'false'); }
+      });
+    }
+
+    // offline support
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* fine without */ });
+    }
 
     render();
     heal();

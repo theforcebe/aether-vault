@@ -7,26 +7,26 @@ maintained), polite throttling on all harvests, no secrets ever committed.
 Work proceeds top to bottom; the morning report states exactly what shipped.
 
 ## Block A: Sync foundation with PIN-encrypted vaults
-- [ ] Create private repo theforcebe/aether-vault-data (users/ namespace)
-- [ ] js/sync.js: GitHub contents API client; AES-GCM encryption with
+- [x] Create private repo theforcebe/aether-vault-data (users/ namespace)
+- [x] js/sync.js: GitHub contents API client; AES-GCM encryption with
       PBKDF2(name+PIN) keys; file slug = hash(name+PIN) so names never appear;
       ETag/sha concurrency; latest-write-wins with local pre-pull snapshot
-- [ ] Data page Sync panel: token, name, PIN, enable/status/push/pull/sign out;
+- [x] Data page Sync panel: token, name, PIN, enable/status/push/pull/sign out;
       plain-language trust model copy (PIN loss = data loss, by design)
-- [ ] Autosync: debounced push after changes when identity present; boot pull
+- [x] Autosync: debounced push after changes when identity present; boot pull
       with cloud-vs-local choice when both changed
-- [ ] Local encrypted roundtrip test against the real repo (token via local gh,
+- [x] Local encrypted roundtrip test against the real repo (token via local gh,
       never committed); deploy dormant-until-token UI
 
 ## Block B: Phase 1 foundation (latency, bake, tests, diagnostics)
-- [ ] Lazy-load brain/vectors/commanders/templates after first paint or on
+- [x] Lazy-load brain/vectors/commanders/templates after first paint or on
       first feature use; shell ships with card facts only
-- [ ] data/manifest.json + freshness display on Data page
-- [ ] bake.js single-command orchestrator for 07-11
-- [ ] test.js consolidated suite (views, 60-combo build grid, analyzer, pilot,
+- [x] data/manifest.json + freshness display on Data page
+- [x] bake.js single-command orchestrator for 07-11
+- [x] test.js consolidated suite (views, 60-combo build grid, analyzer, pilot,
       backup roundtrip, sync crypto)
-- [ ] Diagnostics: error ring buffer + Copy diagnostics on Data page
-- [ ] Storage meter warning at 4MB + one-tap cache prune
+- [x] Diagnostics: error ring buffer + Copy diagnostics on Data page
+- [x] Storage meter warning at 4MB + one-tap cache prune
 
 ## Block C: Mobile excellence quick wins
 - [ ] Bottom tab bar on mobile (Dashboard, Collection, Decks, Builder, More)

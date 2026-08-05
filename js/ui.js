@@ -359,6 +359,8 @@ const UI = (() => {
     return 'Other';
   }
 
+  const deckViewPref = () => { try { return localStorage.getItem('av_deckview') || 'list'; } catch (e) { return 'list'; } };
+
   function deckColumnsHtml(cards, opts) {
     const o = opts || {};
     const buckets = {};
@@ -367,6 +369,23 @@ const UI = (() => {
       (buckets[bucketOf(c.n)] ||= []).push(c);
     }
     const order = ['Creatures', 'Instants', 'Sorceries', 'Artifacts', 'Enchantments', 'Planeswalkers', 'Lands', 'Basics', 'Other'];
+    if (o.visual) {
+      let vcols = '';
+      for (const b of order) {
+        if (!buckets[b]) continue;
+        const list = buckets[b].sort((a, x) => ((Store.card(a.n) || {}).mv || 0) - ((Store.card(x.n) || {}).mv || 0));
+        const count = list.reduce((s, c) => s + c.q, 0);
+        let stack = '';
+        for (const c of list) {
+          const sid = c.sid || Store.sidFor(c.n);
+          stack += '<div class="stackcard" data-modal="' + esc(c.n) + '" role="button" tabindex="0" aria-label="' + esc(c.n) + '">' +
+            (sid ? '<img loading="lazy" alt="" src="' + Scry.img(sid, 'normal') + '">' : '<div class="stack-noart">' + esc(c.n) + '</div>') +
+            (c.q > 1 ? '<span class="stack-q">x' + c.q + '</span>' : '') + '</div>';
+        }
+        vcols += '<div class="v-col"><div class="d-col-h">' + b + ' <span class="dim">' + count + '</span></div><div class="stack">' + stack + '</div></div>';
+      }
+      return vcols;
+    }
     let cols = '';
     for (const b of order) {
       if (!buckets[b]) continue;
@@ -467,6 +486,7 @@ const UI = (() => {
       d.cards.map((c) => '<option ' + (Store.norm(c.n) === Store.norm(d.commander) ? 'selected' : '') + '>' + esc(c.n) + '</option>').join('') + '</select>' +
       '<button class="btn small" id="export-mydeck">Copy list</button>' +
       '<a class="btn small" href="#/pilot/' + id + '">Pilot guide</a>' +
+      '<button class="btn small" id="deckview-toggle">' + (deckViewPref() === 'visual' ? 'List view' : 'Visual view') + '</button>' +
       '<button class="btn small danger" id="del-mydeck">Delete</button></div>' +
       '<div class="add-wrap"><input id="add-card" placeholder="Add a card, type to search" autocomplete="off"><div id="add-sug"></div></div>';
     const missing = Store.missingFromCollection(dv.cards);
@@ -476,9 +496,10 @@ const UI = (() => {
         '<button class="btn small" id="buy-all">Mark all as bought</button>' +
         '<button class="btn small" id="dl-missing">Buy list .txt</button></div>'
       : (Store.hasCollection() ? '<div class="deck-actions"><span class="badge own">fully owned</span></div>' : '');
+    const visual = deckViewPref() === 'visual';
     return deckHeadHtml(dv, extra + buyBar, id) +
       '<div id="report-slot">' + (reports[id] ? reportHtml(reports[id], { editableId: id }) : '') + '</div>' +
-      '<div class="deck-cols">' + deckColumnsHtml(dv.cards, { editable: true, ci: dv.ci || null, showNeed: Store.hasCollection() }) + '</div>';
+      '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { editable: true, ci: dv.ci || null, showNeed: Store.hasCollection(), visual }) + '</div>';
   }
 
   function viewSession(id) {
@@ -486,10 +507,12 @@ const UI = (() => {
     if (!s) return '<p>Not found.</p>';
     const dv = { name: s.name, sub: 'Imported list', ci: '', commanderSid: '', cards: s.cards.map((c) => ({ ...c, src: 'user' })) };
     const extra = '<div class="deck-actions"><button class="btn small" id="sess-edit" data-id="' + s.id + '">Make editable copy</button>' +
-      '<a class="btn small" href="#/pilot/session:' + s.id + '">Pilot guide</a></div>';
+      '<a class="btn small" href="#/pilot/session:' + s.id + '">Pilot guide</a>' +
+      '<button class="btn small" id="deckview-toggle">' + (deckViewPref() === 'visual' ? 'List view' : 'Visual view') + '</button></div>';
+    const visual = deckViewPref() === 'visual';
     return deckHeadHtml(dv, extra, 'session:' + id) +
       '<div id="report-slot">' + (reports['session:' + id] ? reportHtml(reports['session:' + id], {}) : '') + '</div>' +
-      '<div class="deck-cols">' + deckColumnsHtml(dv.cards, {}) + '</div>';
+      '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { visual }) + '</div>';
   }
 
   function viewMoves() {
@@ -1197,6 +1220,15 @@ const UI = (() => {
     // tapping a card name in any deck list opens the full card art
     $$('[data-modal]', root).forEach((el) => {
       el.addEventListener('click', (e) => { e.stopPropagation(); openModal(el.getAttribute('data-modal')); });
+      if (el.getAttribute('role') === 'button') el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(el.getAttribute('data-modal')); }
+      });
+    });
+    // list <-> visual deck rendering
+    const dvt = $('#deckview-toggle', root);
+    if (dvt) dvt.addEventListener('click', () => {
+      try { localStorage.setItem('av_deckview', deckViewPref() === 'visual' ? 'list' : 'visual'); } catch (e) { /* full */ }
+      App.refresh();
     });
   }
 
