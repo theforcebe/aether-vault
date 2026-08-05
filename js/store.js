@@ -128,24 +128,78 @@ const Store = (() => {
     return { d, pct: (d / base) * 100 };
   }
 
-  // Collector page: per-set unique-card ownership from ManaBox set codes.
-  function setProgress() {
+  // Collector page: printing-agnostic. A name you own anywhere counts toward
+  // every set that card appears in; the game is Magic's distinct cards, not
+  // specific printings. Needs the baked per-set name lists (setcards.js).
+  // Two collector games:
+  //   'cards'  - printing-agnostic: a name owned in ANY printing counts toward
+  //              every set that card appears in (the distinct-cards chase)
+  //   'prints' - strict: this exact printing, matched by set + collector
+  //              number from the ManaBox rows (the 50,000+ chase)
+  let setProgressCache = {};
+  function setProgress(mode) {
+    mode = mode === 'prints' ? 'prints' : 'cards';
     const S = typeof window !== 'undefined' && window.VAULT_SETS;
     if (!S) return null;
-    const ownedBySet = {};
-    let unmatchedRows = 0;
-    for (const r of rows()) {
-      if (!r.s) { unmatchedRows++; continue; }
-      (ownedBySet[r.s] ||= new Set()).add(norm(r.n));
+    const hit = setProgressCache[mode];
+    if (hit && hit.rowsRef === state.mycollection) return hit.value;
+    let value;
+    if (mode === 'cards') {
+      const SC = typeof window !== 'undefined' && window.VAULT_SETCARDS;
+      if (!SC) return null;
+      const ownedNames = new Set();
+      for (const r of rows()) ownedNames.add(norm(r.n));
+      // front faces of double-faced cards match their full "A // B" names
+      const ownedIdx = new Set();
+      for (let i = 0; i < SC.names.length; i++) {
+        const full = SC.names[i];
+        if (ownedNames.has(norm(full)) || (full.includes(' // ') && ownedNames.has(norm(full.split(' // ')[0])))) ownedIdx.add(i);
+      }
+      const out = [];
+      for (const s of S.sets) {
+        const list = SC.sets[s.c];
+        if (!list) continue;
+        let owned = 0;
+        for (const idx of list) if (ownedIdx.has(idx)) owned++;
+        if (!owned) continue;
+        out.push({ ...s, total: list.length, owned, pct: Math.min(1, owned / list.length) });
+      }
+      out.sort((a, b) => b.pct - a.pct || b.owned - a.owned);
+      value = { sets: out, uniqueOwned: ownedIdx.size, uniqueTotal: SC.names.length, mode };
+    } else {
+      const byCn = {};
+      const allPrints = new Set();
+      for (const r of rows()) {
+        if (!r.s) continue;
+        const key = r.cn ? String(r.cn) : 'n:' + norm(r.n);
+        (byCn[r.s] ||= new Set()).add(key);
+        allPrints.add(r.s + '|' + key);
+      }
+      const out = [];
+      let totalPrints = 0;
+      for (const s of S.sets) {
+        const denom = s.p || s.total;
+        totalPrints += denom;
+        const owned = byCn[s.c] ? Math.min(byCn[s.c].size, denom) : 0;
+        if (!owned) continue;
+        out.push({ ...s, total: denom, owned, pct: Math.min(1, owned / denom) });
+      }
+      out.sort((a, b) => b.pct - a.pct || b.owned - a.owned);
+      value = { sets: out, uniqueOwned: allPrints.size, uniqueTotal: totalPrints, mode };
     }
-    const out = [];
-    for (const s of S.sets) {
-      const owned = ownedBySet[s.c] ? ownedBySet[s.c].size : 0;
-      if (!owned) continue;
-      out.push({ ...s, owned: Math.min(owned, s.total), pct: Math.min(1, owned / s.total) });
+    setProgressCache[mode] = { rowsRef: state.mycollection, value };
+    return value;
+  }
+
+  // is this exact card name owned in any printing?
+  function ownsName(fullName) {
+    const k = norm(fullName);
+    if (byName[k] && byName[k].qty > 0) return true;
+    if (fullName.includes(' // ')) {
+      const front = norm(fullName.split(' // ')[0]);
+      return !!(byName[front] && byName[front].qty > 0);
     }
-    out.sort((a, b) => b.pct - a.pct || b.owned - a.owned);
-    return { sets: out, unmatchedRows };
+    return false;
   }
 
   function setTier(owned, total) {
@@ -157,6 +211,20 @@ const Store = (() => {
     if (pct >= 0.25) return { name: 'Collector', cls: '' };
     if (pct >= 0.1 || owned >= 10) return { name: 'Scout', cls: '' };
     return { name: 'Dabbler', cls: 'dim' };
+  }
+
+  // the next rung on the ladder for a set, and how many cards away it is
+  const TIER_LADDER = [
+    { pct: 0.1, name: 'Scout' }, { pct: 0.25, name: 'Collector' }, { pct: 0.5, name: 'Curator' },
+    { pct: 0.75, name: 'Archivist' }, { pct: 0.9, name: 'Completionist' }, { pct: 1, name: 'Set Master' },
+  ];
+  function nextTier(owned, total) {
+    if (total <= 0) return null;
+    for (const t of TIER_LADDER) {
+      const needAt = Math.ceil(t.pct * total);
+      if (owned < needAt) return { name: t.name, need: needAt - owned };
+    }
+    return null; // mastered
   }
   function priceAge() { const ts = state.prices._ts; return ts ? (Date.now() - ts) / 36e5 : null; }
 
@@ -534,7 +602,7 @@ const Store = (() => {
   return {
     state, norm, card, sidFor,
     rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
-    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier,
+    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, ownsName,
     userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,

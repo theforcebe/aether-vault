@@ -5,7 +5,7 @@
 // Card images: cache-first with a size cap. APIs (Scryfall search/collection,
 // GitHub sync, EDHREC) are never intercepted; sync must always hit the network.
 
-const BUILD = '10';
+const BUILD = '11';
 const VERSION = 'av-v' + BUILD;
 const APP_CACHE = VERSION + '-app';
 const IMG_CACHE = VERSION + '-img';

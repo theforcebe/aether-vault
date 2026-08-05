@@ -805,8 +805,65 @@ const UI = (() => {
     return 'Apprentice Collector';
   }
 
-  function viewCollector() {
-    if (!window.VAULT_SETS) {
+  function collectorRow(s) {
+    const tier = s.owned > 0 ? Store.setTier(s.owned, s.total) : null;
+    const nt = Store.nextTier(s.owned, s.total);
+    return '<div class="set-row" data-set="' + esc(s.c) + '" data-name="' + esc(s.n.toLowerCase()) + '" data-pct="' + Math.round(s.pct * 100) + '" data-owned="' + s.owned + '" data-year="' + (s.y || 0) + '" data-size="' + s.total + '">' +
+      '<div class="set-head"><span class="set-n">' + esc(s.n) + ' <span class="dim">' + (s.y || '') + '</span></span>' +
+      (tier ? '<span class="badge ' + tier.cls + '">' + tier.name + '</span>' : '') +
+      '<span class="set-count">' + s.owned + ' / ' + s.total + '</span></div>' +
+      '<div class="set-track"><div class="set-fill' + (s.pct >= 1 ? ' full' : '') + '" style="width:' + (s.owned ? Math.max(2, Math.round(s.pct * 100)) : 0) + '%"></div></div>' +
+      (nt && s.owned > 0 ? '<div class="set-next dim">' + nt.need + ' more to ' + nt.name + '</div>' : '') +
+      '<div class="set-detail" id="set-detail-' + esc(s.c) + '"></div></div>';
+  }
+
+  function ringHtml(id, label, owned, total, accentCls) {
+    const frac = total > 0 ? Math.min(1, owned / total) : 0;
+    const C = 2 * Math.PI * 52;
+    return '<div class="ring-wrap">' +
+      '<svg viewBox="0 0 120 120" class="ring" aria-hidden="true">' +
+      '<circle class="ring-bg" cx="60" cy="60" r="52"></circle>' +
+      '<circle class="ring-fg ' + accentCls + '" id="' + id + '" cx="60" cy="60" r="52" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + C.toFixed(1) + '" data-offset="' + (C * (1 - frac)).toFixed(1) + '"></circle></svg>' +
+      '<div class="ring-txt"><span class="ring-big count-up" data-target="' + owned + '">0</span>' +
+      '<span class="ring-of">of ' + total.toLocaleString() + '</span><span class="ring-label">' + label + '</span></div></div>';
+  }
+
+  function milestoneShelf(prog) {
+    const earned = [];
+    let nextUp = null;
+    const claim = (got, target, label) => {
+      if (got >= target) earned.push(label);
+      else if (!nextUp) nextUp = { label, toGo: target - got };
+    };
+    for (const t of [100, 500, 1000, 2500, 5000, 10000]) claim(prog.uniqueOwned, t, t.toLocaleString() + ' cards');
+    for (const t of [1, 5, 10, 20, 40]) claim(prog.sets.length, t, t + (t === 1 ? ' set started' : ' sets started'));
+    const counts = [
+      [prog.sets.filter((s) => s.pct >= 1).length, 'Set Master'],
+      [prog.sets.filter((s) => s.pct >= 0.9).length, 'Completionist'],
+      [prog.sets.filter((s) => s.pct >= 0.5).length, 'Curator'],
+    ];
+    for (const [n, name] of counts) if (n > 0) earned.push(n > 1 ? n + ' × ' + name : 'First ' + name);
+    return '<div class="mil-shelf">' +
+      earned.map((m) => '<span class="mil got">' + esc(m) + '</span>').join('') +
+      (nextUp ? '<span class="mil locked">' + esc(nextUp.label) + ' <span class="dim">' + nextUp.toGo.toLocaleString() + ' to go</span></span>' : '') +
+      '</div>';
+  }
+
+  function quickWinsHtml(prog) {
+    const wins = prog.sets
+      .filter((s) => s.pct < 1)
+      .map((s) => ({ s, nt: Store.nextTier(s.owned, s.total) }))
+      .filter((x) => x.nt)
+      .sort((a, b) => a.nt.need - b.nt.need || b.s.pct - a.s.pct)
+      .slice(0, 3);
+    if (!wins.length) return '';
+    return '<div class="qw-row"><span class="dim">Quick wins:</span>' +
+      wins.map((x) => '<button class="chip" data-jump="' + esc(x.s.c) + '">' + esc(x.s.n) + ': ' + x.nt.need + ' to ' + x.nt.name + '</button>').join('') +
+      '</div>';
+  }
+
+  function viewCollector(params) {
+    if (!window.VAULT_SETS || !window.VAULT_SETCARDS) {
       App.ensureData().then(() => App.refresh());
       return '<div class="page-h"><h1>Collector</h1></div><p class="dim">Loading the set index...</p>';
     }
@@ -814,46 +871,67 @@ const UI = (() => {
       return '<div class="page-h"><h1>Collector</h1></div>' +
         '<p class="dim">Upload a ManaBox export and this page tracks your progress through every Magic set: what you hold, what is missing, and the titles you have earned.</p>';
     }
-    const prog = Store.setProgress();
-    if (!prog || !prog.sets.length) {
-      return '<div class="page-h"><h1>Collector</h1></div>' +
-        '<p class="dim">No set codes found in this collection. Re-upload a ManaBox CSV export (it includes a Set code column) to unlock set tracking.</p>';
-    }
-    const cardsInSets = prog.sets.reduce((s, x) => s + x.owned, 0);
-    const best = prog.sets[0];
-    const row = (s) => {
-      const tier = Store.setTier(s.owned, s.total);
-      return '<div class="set-row" data-set="' + esc(s.c) + '">' +
-        '<div class="set-head"><span class="set-n">' + esc(s.n) + ' <span class="dim">' + (s.y || '') + '</span></span>' +
-        '<span class="badge ' + tier.cls + '">' + tier.name + '</span>' +
-        '<span class="set-count">' + s.owned + ' / ' + s.total + '</span></div>' +
-        '<div class="set-track"><div class="set-fill' + (s.pct >= 1 ? ' full' : '') + '" style="width:' + Math.max(2, Math.round(s.pct * 100)) + '%"></div></div>' +
-        '<div class="set-detail" id="set-detail-' + esc(s.c) + '"></div></div>';
-    };
-    return '<div class="page-h"><h1>Collector</h1></div>' +
-      '<section class="panel collector-hero"><div class="hero-title">' + overallTitle(prog) + '</div>' +
-      '<div class="dim">Titles grow as sets fill: Scout at 10%, Collector at 25%, Curator at 50%, Archivist at 75%, Completionist at 90%, Set Master at 100%.</div></section>' +
-      '<section class="stat-row">' +
-      '<div class="stat-tile"><div class="stat-label">Sets started</div><div class="stat-value">' + prog.sets.length + '</div></div>' +
-      '<div class="stat-tile"><div class="stat-label">Unique cards in sets</div><div class="stat-value">' + cardsInSets.toLocaleString() + '</div></div>' +
-      '<div class="stat-tile"><div class="stat-label">Closest to done</div><div class="stat-value" style="font-size:15px">' + esc(best.n) + '</div><div class="dim">' + Math.round(best.pct * 100) + '% complete</div></div>' +
+    const mode = params && params.mode === 'prints' ? 'prints' : 'cards';
+    const progCards = Store.setProgress('cards');
+    const progPrints = Store.setProgress('prints');
+    const prog = mode === 'prints' ? progPrints : progCards;
+    const showAll = params && params.all === '1';
+    const startedCodes = new Set(prog.sets.map((s) => s.c));
+    const rest = window.VAULT_SETS.sets
+      .filter((s) => !startedCodes.has(s.c))
+      .map((s) => ({ ...s, total: mode === 'prints' ? (s.p || s.total) : s.total, owned: 0, pct: 0 }));
+    const modeChips =
+      '<div class="chips" style="margin:0 0 4px">' +
+      '<a class="chip ' + (mode === 'cards' ? 'on' : '') + '" href="#/collector' + (showAll ? '?all=1' : '') + '">Unique cards</a>' +
+      '<a class="chip ' + (mode === 'prints' ? 'on' : '') + '" href="#/collector?mode=prints' + (showAll ? '&all=1' : '') + '">All printings</a></div>';
+    return '<div class="page-h"><h1>Collector</h1></div>' + modeChips +
+      '<section class="panel collector-hero">' +
+      '<div class="hero-title">' + overallTitle(prog) + '</div>' +
+      '<div class="ring-pair">' +
+      ringHtml('ring-cards', 'distinct cards', progCards.uniqueOwned, progCards.uniqueTotal, '') +
+      ringHtml('ring-prints', 'printings', progPrints.uniqueOwned, progPrints.uniqueTotal, 'alt') +
+      '</div>' +
+      milestoneShelf(prog) +
+      quickWinsHtml(prog) +
       '</section>' +
-      '<section class="panel"><div class="panel-h">Your sets</div>' +
-      '<p class="dim">Progress counts unique cards, not duplicate printings. Tap a set to see exactly what is missing and what finishing it costs.</p>' +
-      prog.sets.map(row).join('') + '</section>' +
-      (prog.unmatchedRows ? '<p class="dim">' + prog.unmatchedRows + ' rows have no set code (imported by name rather than ManaBox) and are not counted here.</p>' : '');
+      '<section class="stat-row">' +
+      '<div class="stat-tile"><div class="stat-label">Sets started</div><div class="stat-value count-up" data-target="' + prog.sets.length + '">0</div><div class="dim">of ' + window.VAULT_SETS.sets.length + ' in the index</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Set Masters</div><div class="stat-value count-up" data-target="' + prog.sets.filter((s) => s.pct >= 1).length + '">0</div><div class="dim">complete sets</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Closest to done</div><div class="stat-value" style="font-size:15px">' + (prog.sets[0] ? esc(prog.sets[0].n) : 'None yet') + '</div>' + (prog.sets[0] ? '<div class="dim">' + Math.round(prog.sets[0].pct * 100) + '% complete</div>' : '') + '</div>' +
+      '</section>' +
+      '<section class="panel"><div class="panel-h">Sets</div>' +
+      '<p class="dim">' + (mode === 'prints'
+        ? 'Strict mode: every printing counts separately, matched by set and collector number.'
+        : 'A card you own in any printing counts toward every set it appears in.') +
+      ' Tap a set to open the full binder: owned in color, missing in grey.</p>' +
+      '<div class="set-controls">' +
+      '<input id="set-search" placeholder="Search sets" autocomplete="off">' +
+      '<select id="set-sort"><option value="done">Most complete</option><option value="new">Newest</option><option value="name">A to Z</option><option value="big">Biggest</option></select>' +
+      '<div class="chips" id="set-tierchips">' +
+      '<button class="chip on" data-minpct="-1">All</button>' +
+      '<button class="chip" data-minpct="1">Started</button>' +
+      '<button class="chip" data-minpct="50">Curator+</button>' +
+      '<button class="chip" data-minpct="90">Completionist+</button>' +
+      '<button class="chip" data-minpct="100">Done</button></div></div>' +
+      '<div id="set-list">' + prog.sets.map(collectorRow).join('') +
+      (showAll ? rest.map(collectorRow).join('') : '') + '</div>' +
+      (showAll
+        ? '<div class="page-actions" style="margin-top:10px"><a class="btn small" href="#/collector' + (mode === 'prints' ? '?mode=prints' : '') + '">Show only my sets</a></div>'
+        : '<div class="page-actions" style="margin-top:10px"><a class="btn small" href="#/collector?' + (mode === 'prints' ? 'mode=prints&' : '') + 'all=1">Show all ' + rest.length + ' remaining sets</a></div>') +
+      '</section>';
   }
 
-  async function fetchSetMissing(code) {
-    const cacheKey = 'av_set_' + code;
+  async function fetchSetCards(code, mode) {
+    const cacheKey = (mode === 'prints' ? 'av_setp_' : 'av_set_') + code;
     try {
       const hit = JSON.parse(localStorage.getItem(cacheKey) || 'null');
       if (hit && Date.now() - hit.t < 7 * 864e5) return hit.cards;
     } catch (e) { /* refetch */ }
     const cards = [];
-    let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent('e:' + code.toLowerCase() + ' game:paper') + '&unique=cards&order=set';
+    let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent('e:' + code.toLowerCase() + ' game:paper') +
+      '&unique=' + (mode === 'prints' ? 'prints' : 'cards') + '&order=set';
     let pages = 0;
-    while (url && pages < 6) {
+    while (url && pages < 10) {
       const r = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error('Scryfall said ' + r.status);
       const d = await r.json();
@@ -863,8 +941,8 @@ const UI = (() => {
       if (url) await new Promise((res) => setTimeout(res, 120));
     }
     try {
-      // keep at most 10 cached sets; drop the oldest
-      const keys = Object.keys(localStorage).filter((k) => k.startsWith('av_set_'));
+      // keep at most 10 cached sets across both modes; drop the oldest
+      const keys = Object.keys(localStorage).filter((k) => k.startsWith('av_set_') || k.startsWith('av_setp_'));
       if (keys.length >= 10) {
         keys.map((k) => { try { return { k, t: JSON.parse(localStorage.getItem(k)).t || 0 }; } catch (e) { return { k, t: 0 }; } })
           .sort((a, b) => a.t - b.t).slice(0, keys.length - 9).forEach((x) => localStorage.removeItem(x.k));
@@ -1031,6 +1109,70 @@ const UI = (() => {
         }
       })();
     }
+    // collector: rings, count-ups, search/sort/filter, quick-win jumps
+    if (route === '#/collector') {
+      const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      $$('.count-up', root).forEach((el) => {
+        const target = parseInt(el.getAttribute('data-target'), 10) || 0;
+        if (reduced || target === 0) { el.textContent = target.toLocaleString(); return; }
+        const t0 = performance.now();
+        const dur = 850;
+        const step = (now) => {
+          const f = Math.min(1, (now - t0) / dur);
+          el.textContent = Math.round(target * (1 - Math.pow(1 - f, 3))).toLocaleString();
+          if (f < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+      $$('.ring-fg', root).forEach((el) => {
+        const to = el.getAttribute('data-offset');
+        if (reduced) { el.style.transition = 'none'; el.style.strokeDashoffset = to; return; }
+        setTimeout(() => { el.style.strokeDashoffset = to; }, 60);
+      });
+      const applyFilters = () => {
+        const term = ($('#set-search', root).value || '').toLowerCase().trim();
+        const chipEl = $('#set-tierchips .chip.on', root);
+        const minPct = chipEl ? parseInt(chipEl.getAttribute('data-minpct'), 10) : -1;
+        $$('#set-list .set-row', root).forEach((r) => {
+          const pct = parseInt(r.getAttribute('data-pct'), 10);
+          const owned = parseInt(r.getAttribute('data-owned'), 10);
+          let pass = true;
+          if (minPct === 1) pass = owned > 0;
+          else if (minPct > 1) pass = pct >= minPct;
+          if (pass && term) pass = r.getAttribute('data-name').includes(term);
+          r.style.display = pass ? '' : 'none';
+        });
+      };
+      const search = $('#set-search', root);
+      if (search) search.addEventListener('input', applyFilters);
+      $$('#set-tierchips .chip', root).forEach((chip) => chip.addEventListener('click', () => {
+        $$('#set-tierchips .chip', root).forEach((c) => c.classList.remove('on'));
+        chip.classList.add('on');
+        applyFilters();
+      }));
+      const sortSel = $('#set-sort', root);
+      if (sortSel) sortSel.addEventListener('change', () => {
+        const list = $('#set-list', root);
+        const key = sortSel.value;
+        const val = (r) => key === 'new' ? parseInt(r.getAttribute('data-year'), 10)
+          : key === 'big' ? parseInt(r.getAttribute('data-size'), 10)
+          : key === 'name' ? 0
+          : parseInt(r.getAttribute('data-pct'), 10);
+        [...list.querySelectorAll('.set-row')]
+          .sort((a, b) => key === 'name'
+            ? a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'))
+            : val(b) - val(a) || a.getAttribute('data-name').localeCompare(b.getAttribute('data-name')))
+          .forEach((r) => list.appendChild(r));
+      });
+      $$('[data-jump]', root).forEach((b) => b.addEventListener('click', () => {
+        const row = $('.set-row[data-set="' + b.getAttribute('data-jump') + '"]', root);
+        if (!row) return;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const detail = row.querySelector('.set-detail');
+        if (detail && !detail.innerHTML) row.querySelector('.set-head').click();
+      }));
+    }
+
     // collector: tap a set to see what is missing
     $$('.set-row', root).forEach((rowEl) => rowEl.querySelector('.set-head').addEventListener('click', async () => {
       const code = rowEl.getAttribute('data-set');
@@ -1039,22 +1181,33 @@ const UI = (() => {
       if (slot.innerHTML) { slot.innerHTML = ''; return; }
       slot.innerHTML = '<div class="dim" style="padding:8px 0">Checking the set list...</div>';
       try {
-        const cards = await fetchSetMissing(code);
-        const ownedNames = new Set(Store.rows().filter((r) => r.s === code).map((r) => Store.norm(r.n)));
-        const missing = cards.filter((c) => !ownedNames.has(Store.norm(c.n)));
+        const mode = params && params.mode === 'prints' ? 'prints' : 'cards';
+        const cards = await fetchSetCards(code, mode);
+        const ownedCn = mode === 'prints'
+          ? new Set(Store.rows().filter((r) => r.s === code && r.cn).map((r) => String(r.cn)))
+          : null;
+        const isOwned = (c) => mode === 'prints' ? ownedCn.has(String(c.cn)) : Store.ownsName(c.n);
+        const missing = cards.filter((c) => !isOwned(c));
         const cost = missing.reduce((s, c) => s + (c.usd || 0), 0);
-        if (!missing.length) {
-          slot.innerHTML = '<div style="padding:8px 0"><span class="badge gold">Set complete</span></div>';
-        } else {
-          slot.innerHTML =
-            '<div class="dim" style="margin:6px 0">' + missing.length + ' missing, about ' + money(cost) + ' to finish. ' +
-            '<button class="btn small" data-setwant="' + esc(code) + '">Want list .txt</button></div>' +
-            missing.sort((a, b) => (b.usd || 0) - (a.usd || 0)).map((c) =>
-              '<div class="cmp-row" data-hover-sid="' + (c.sid || '') + '"><span class="cmp-n">' + esc(c.n) + '</span>' +
-              '<span class="dim">#' + esc(c.cn) + '</span><span class="ra list-p">' + (c.usd != null ? money(c.usd) : '') + '</span></div>').join('');
-          const wb = slot.querySelector('[data-setwant]');
-          if (wb) wb.addEventListener('click', () => dl(code.toLowerCase() + '-wantlist.txt', missing.map((c) => '1 ' + c.n).join('\n')));
-        }
+        const cnVal = (c) => { const m = String(c.cn).match(/\d+/); return m ? parseInt(m[0], 10) : 9999; };
+        const grid = [...cards].sort((a, b) => cnVal(a) - cnVal(b)).map((c) => {
+          const owned = isOwned(c);
+          return '<div class="set-card' + (owned ? '' : ' ghost') + '" data-modal="' + esc(c.n) + '" data-hover-sid="' + (c.sid || '') + '" role="button" tabindex="0" aria-label="' + esc(c.n) + (owned ? '' : ', not owned') + '">' +
+            (c.sid ? '<img loading="lazy" alt="" src="' + Scry.img(c.sid, 'small') + '">' : '<div class="stack-noart">' + esc(c.n) + '</div>') +
+            '</div>';
+        }).join('');
+        slot.innerHTML =
+          (missing.length
+            ? '<div class="dim" style="margin:6px 0">' + missing.length + ' missing, about ' + money(cost) + ' to finish. Grey cards are the gaps. ' +
+              '<button class="btn small" data-setwant="' + esc(code) + '">Want list .txt</button></div>'
+            : '<div style="padding:6px 0"><span class="badge gold">Set complete</span></div>') +
+          '<div class="set-grid">' + grid + '</div>';
+        const wb = slot.querySelector('[data-setwant]');
+        if (wb) wb.addEventListener('click', () => dl(code.toLowerCase() + '-wantlist.txt', missing.map((c) => '1 ' + c.n).join('\n')));
+        slot.querySelectorAll('[data-modal]').forEach((el) => {
+          el.addEventListener('click', (ev) => { ev.stopPropagation(); openModal(el.getAttribute('data-modal')); });
+          el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openModal(el.getAttribute('data-modal')); } });
+        });
       } catch (e) {
         slot.innerHTML = '<div class="dim">Could not reach Scryfall (' + esc(e.message || 'network') + '). Try again.</div>';
       }
@@ -1564,7 +1717,7 @@ const UI = (() => {
     if (pr) pr.addEventListener('click', () => {
       let freed = 0;
       for (const k of Object.keys(localStorage)) {
-        if (k === 'av_oracle' || k.startsWith('av_tpl_') || k.startsWith('av_set_')) { freed += (localStorage.getItem(k) || '').length; localStorage.removeItem(k); }
+        if (k === 'av_oracle' || k.startsWith('av_tpl_') || k.startsWith('av_set_') || k.startsWith('av_setp_')) { freed += (localStorage.getItem(k) || '').length; localStorage.removeItem(k); }
       }
       toast('Freed ' + (freed / 1024).toFixed(0) + ' KB. Caches rebuild themselves as needed.');
       App.refresh();

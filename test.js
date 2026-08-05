@@ -196,16 +196,28 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   // ---------- collector: set progress + collection ticker ----------
   section('COLLECTOR');
   try { require('./data/sets.js'); } catch (e) { /* baked separately */ }
-  if (window.VAULT_SETS) {
+  try { require('./data/setcards.js'); } catch (e) { /* baked separately */ }
+  if (window.VAULT_SETS && window.VAULT_SETCARDS) {
     ok(window.VAULT_SETS.sets.length >= 240, 'set index covers 240+ sets (' + window.VAULT_SETS.sets.length + ')');
-    ok(window.VAULT_SETS.sets.every((s) => s.total >= 5 && s.c && s.n), 'every set entry has code, name, denominator');
-    const prog = Store.setProgress();
-    ok(prog && prog.sets.length > 0, 'set progress found from ManaBox set codes (' + (prog ? prog.sets.length : 0) + ' sets started)');
+    ok(window.VAULT_SETS.sets.every((s) => s.total >= 5 && s.c && s.n && s.p >= s.total), 'every set entry has code, name, card and printing denominators');
+    ok(window.VAULT_SETCARDS.names.length >= 20000, 'name table covers 20k+ distinct cards (' + window.VAULT_SETCARDS.names.length + ')');
+    ok(Object.keys(window.VAULT_SETCARDS.sets).length >= 240, 'per-set name lists cover the index (' + Object.keys(window.VAULT_SETCARDS.sets).length + ')');
+    const prog = Store.setProgress('cards');
+    ok(prog && prog.sets.length > 0, 'unique-cards progress computes (' + (prog ? prog.sets.length : 0) + ' sets started)');
     ok(prog.sets.every((s) => s.owned <= s.total && s.pct <= 1), 'owned never exceeds the set size');
-    const collectorView = UI.viewCollector();
-    ok(typeof collectorView === 'string' && collectorView.includes('set-row'), 'collector page renders (' + collectorView.length + ')');
+    ok(prog.uniqueOwned > 500 && prog.uniqueOwned <= prog.uniqueTotal, 'distinct-cards headline sane (' + prog.uniqueOwned + ' of ' + prog.uniqueTotal + ')');
+    const progP = Store.setProgress('prints');
+    ok(progP && progP.sets.length > 0 && progP.uniqueTotal > 40000, 'all-printings mode computes (' + (progP ? progP.uniqueOwned + ' of ' + progP.uniqueTotal : '?') + ')');
+    ok(progP.sets.every((s) => s.owned <= s.total), 'printings owned never exceeds printings in set');
+    // printing-agnostic really is: an LTC-only reprint must still tick LTR-style sets it appears in
+    const anySet = prog.sets[0];
+    ok(anySet.owned > 0, 'top set has owned cards attributed');
+    const collectorView = UI.viewCollector({});
+    ok(typeof collectorView === 'string' && collectorView.includes('set-row') && collectorView.includes('distinct cards'), 'collector page renders cards mode');
+    const collectorViewP = UI.viewCollector({ mode: 'prints', all: '1' });
+    ok(typeof collectorViewP === 'string' && collectorViewP.includes('printings') && collectorViewP.includes('Show only my sets'), 'collector page renders prints mode with all sets');
   } else {
-    ok(false, 'sets.js missing; run deck-overhaul/16-sets.js');
+    ok(false, 'sets.js/setcards.js missing; run deck-overhaul 16 + 17');
   }
   ok(Store.setTier(0, 100).name === 'Dabbler' && Store.setTier(25, 100).name === 'Collector' &&
      Store.setTier(50, 100).name === 'Curator' && Store.setTier(75, 100).name === 'Archivist' &&

@@ -7,7 +7,7 @@ const App = (() => {
   let dataPromise = null;
   function ensureData() {
     if (!dataPromise) {
-      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors', 'combos', 'commanders-cards', 'sets'].map((f) => new Promise((res) => {
+      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors', 'combos', 'commanders-cards', 'sets', 'setcards'].map((f) => new Promise((res) => {
         const s = document.createElement('script');
         s.src = 'data/' + f + '.js?v=' + (window.AV_BUILD || '0');
         s.onload = res;
