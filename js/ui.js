@@ -38,6 +38,8 @@ const UI = (() => {
   function toast(msg) {
     const t = document.createElement('div');
     t.className = 'toast';
+    t.setAttribute('role', 'status');
+    t.setAttribute('aria-live', 'polite');
     t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(() => t.classList.add('show'), 20);
@@ -299,7 +301,7 @@ const UI = (() => {
         '<div class="c-meta"><span class="c-qty">x' + it.q + '</span>' +
         (it.foil ? '<span class="c-foil">foil</span>' : '') +
         '<span class="c-price">' + money(val(it)) + '</span>' +
-        '<button class="m-act icon" data-move="' + esc(it.n) + '" title="Add to a deck">&#8942;</button></div>' +
+        '<button class="m-act icon" data-move="' + esc(it.n) + '" title="Add to a deck" aria-label="Add ' + esc(it.n) + ' to a deck">&#8942;</button></div>' +
         (tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') ? '<div class="c-tick">' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</div>' : '') +
         badgeRow(it) + '</div>').join('') + '</div>';
     }
@@ -397,7 +399,7 @@ const UI = (() => {
         const warn = o.ci ? (() => { const f = Store.card(c.n); return f && [...(f.ci || '')].some((x) => !o.ci.includes(x)); })() : false;
         rowsH += '<div class="d-row" draggable="true" data-card="' + esc(c.n) + '" data-hover-sid="' + (sid || '') + '">' +
           (o.editable
-            ? '<span class="qty-ctl"><button class="qb" data-dec="' + esc(c.n) + '">&minus;</button><span class="d-q">' + c.q + '</span><button class="qb" data-inc="' + esc(c.n) + '">+</button></span>'
+            ? '<span class="qty-ctl"><button class="qb" data-dec="' + esc(c.n) + '" aria-label="One fewer ' + esc(c.n) + '">&minus;</button><span class="d-q">' + c.q + '</span><button class="qb" data-inc="' + esc(c.n) + '" aria-label="One more ' + esc(c.n) + '">+</button></span>'
             : '<span class="d-q">' + c.q + '</span>') +
           '<span class="d-n" data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
           (warn ? '<span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
@@ -405,8 +407,8 @@ const UI = (() => {
             ? '<button class="btn small buy-b" data-bought="' + esc(c.n) + '">Bought</button>' : '') +
           '<span class="d-p">' + money(Store.cardValue(c.n, sid) * c.q) + tickerHtml(c.n, sid, '') + '</span>' +
           (o.editable
-            ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove">&times;</button>'
-            : '<button class="m-act icon" data-move="' + esc(c.n) + '" title="Add to a deck">&#8942;</button>') +
+            ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove" aria-label="Remove ' + esc(c.n) + '">&times;</button>'
+            : '<button class="m-act icon" data-move="' + esc(c.n) + '" title="Add to a deck" aria-label="Add ' + esc(c.n) + ' to a deck">&#8942;</button>') +
           '</div>';
       }
       cols += '<div class="d-col"><div class="d-col-h">' + b + ' <span class="dim">' + count + '</span></div>' + rowsH + '</div>';
