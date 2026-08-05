@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Aether Vault</title>
   <meta name="description" content="A Magic: The Gathering collection and deck vault with live pricing.">
+  <meta name="theme-color" content="#fafaf9">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23ffffff'/><path d='M50 16 82 50 50 84 18 50Z' fill='%2317171c'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,29 +13,30 @@
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <svg width="0" height="0" style="position:absolute">
-    <defs>
-      <linearGradient id="av-grad" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stop-color="#8688e4"/>
-        <stop offset="1" stop-color="#5457d6"/>
-      </linearGradient>
-    </defs>
-  </svg>
-
   <div id="price-progress"><div></div></div>
 
   <header class="topbar">
-    <a class="logo" href="#/vault">Aether Vault</a>
+    <a class="logo" href="#/dashboard">Aether Vault</a>
     <nav class="nav">
-      <a href="#/vault">Vault</a>
+      <a href="#/dashboard">Dashboard</a>
       <a href="#/collection">Collection</a>
-      <a href="#/moves">Moves<span id="moves-count"></span></a>
+      <a href="#/decks">Decks</a>
       <a href="#/import">Import</a>
+      <a href="#/moves">Moves<span id="moves-count"></span></a>
+      <a href="#/data">Data</a>
     </nav>
-    <button class="btn primary" id="btn-prices">Refresh prices</button>
-    <button class="btn" id="btn-backup">Backup</button>
-    <label class="btn" for="file-restore">Restore</label>
+    <button class="btn primary desktop-only" id="btn-prices">Refresh prices</button>
+    <details class="menu">
+      <summary class="btn" aria-label="Menu">Menu</summary>
+      <div class="menu-pop">
+        <button class="menu-item" id="m-prices">Refresh prices</button>
+        <button class="menu-item" id="m-backup">Download backup</button>
+        <label class="menu-item" for="file-restore">Restore backup</label>
+        <label class="menu-item" for="file-csv">Upload ManaBox CSV</label>
+      </div>
+    </details>
     <input type="file" id="file-restore" accept="application/json" style="display:none">
+    <input type="file" id="file-csv" accept=".csv,text/csv" style="display:none">
   </header>
 
   <main id="view"></main>
@@ -42,8 +44,8 @@
   <footer>
     Card data and images courtesy of Scryfall. Aether Vault is unofficial Fan Content permitted under the
     Wizards of the Coast Fan Content Policy. Card images and mana symbols are copyright Wizards of the Coast, LLC.<br>
-    Prices are daily estimates provided via Scryfall and carry absolutely no guarantee. See stores for final prices.<br>
-    Your moves, imported decks, and price history live only in this browser. Use Backup to save them to a file.
+    Prices are daily estimates provided via Scryfall and carry no guarantee. See stores for final prices.<br>
+    Decks you build, lists you import, uploads, and price history stay in your browser only. Backup lives on the Data page.
   </footer>
 
   <script src="data/collection.js"></script>
