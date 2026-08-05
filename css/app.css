@@ -73,7 +73,7 @@ button, input, select, textarea { font-family: var(--font); }
 .btn.danger { color: var(--red); border-color: #eccdd3; }
 .btn:disabled { opacity: 0.55; cursor: wait; }
 
-details.menu { position: relative; }
+details.menu { position: relative; margin-left: auto; }
 details.menu summary { list-style: none; cursor: pointer; }
 details.menu summary::-webkit-details-marker { display: none; }
 .menu-pop {
@@ -618,6 +618,7 @@ footer { border-top: 1px solid var(--line); margin-top: 60px; padding: 22px 20px
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
   box-shadow: var(--shadow-lift); padding: 6px; display: flex; flex-direction: column; min-width: 170px;
 }
+.tab-more-pop[hidden] { display: none; }
 .tab-more-pop a { padding: 11px 14px; border-radius: 9px; color: var(--ink); text-decoration: none; font-weight: 550; font-size: 14px; }
 .tab-more-pop a:hover { background: var(--accent-soft); }
 #tab-more-dot, #tab-data-dot {
