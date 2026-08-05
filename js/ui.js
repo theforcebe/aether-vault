@@ -24,6 +24,17 @@ const UI = (() => {
   }
   const thumb = (sid) => sid ? '<img class="thumb" loading="lazy" src="' + Scry.img(sid, 'small') + '" alt="">' : '<span class="thumb ph"></span>';
 
+  // ManaBox-style movement since the app first saw a price for this printing:
+  // +24.36 (+33.2%) in green, or red when down.
+  function tickerHtml(n, sid, f) {
+    const t = Store.ticker(n, sid, f || '');
+    if (!t) return '';
+    const up = t.d >= 0;
+    const sign = up ? '+' : '-';
+    return '<span class="tick ' + (up ? 'up' : 'down') + '">' + sign + Math.abs(t.d).toFixed(2) +
+      ' (' + sign + Math.abs(t.pct).toFixed(1) + '%)</span>';
+  }
+
   function toast(msg) {
     const t = document.createElement('div');
     t.className = 'toast';
@@ -189,7 +200,7 @@ const UI = (() => {
     const holdings = Store.topHoldings(8).map((h) =>
       '<div class="hold-row" data-hover-sid="' + (h.sid || '') + '">' + thumb(h.sid) +
       '<span class="hold-n">' + esc(h.n) + (h.f ? ' <span class="badge">' + h.f + '</span>' : '') + '</span>' +
-      '<span class="dim">x' + h.q + '</span><span class="hold-v">' + money(h.total) + '</span></div>').join('');
+      '<span class="dim">x' + h.q + '</span><span class="hold-v">' + money(h.total) + '<br>' + tickerHtml(h.n, h.sid, h.f) + '</span></div>').join('');
     const dist = Store.distribution();
     const deckVals = deckRefs.map((r) => [r.name.split(',')[0], Math.round(Store.userDeckTotal(r.key))]);
 
@@ -274,7 +285,7 @@ const UI = (() => {
           thumb(it.sid) +
           '<span class="list-n">' + esc(it.n) + (it.foil ? ' <span class="badge">foil</span>' : '') + '</span>' +
           '<span class="dim">' + [...it.sets].slice(0, 3).join(', ') + '</span>' +
-          '<span class="ra dim">x' + it.q + '</span><span class="ra list-p">' + money(val(it)) + '</span>' +
+          '<span class="ra dim">x' + it.q + '</span><span class="ra list-p">' + money(val(it)) + '<br>' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</span>' +
           '<button class="btn small m-act" data-move="' + esc(it.n) + '">Add</button></div>').join('');
     } else {
       body = '<div class="col-grid">' + shown.map((it) =>
@@ -284,6 +295,7 @@ const UI = (() => {
         (it.foil ? '<span class="c-foil">foil</span>' : '') +
         '<span class="c-price">' + money(val(it)) + '</span>' +
         '<button class="m-act icon" data-move="' + esc(it.n) + '" title="Add to a deck">&#8942;</button></div>' +
+        (tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') ? '<div class="c-tick">' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</div>' : '') +
         badgeRow(it) + '</div>').join('') + '</div>';
     }
     const sel = (name, opts, cur, label) =>
@@ -363,9 +375,9 @@ const UI = (() => {
           (o.editable
             ? '<span class="qty-ctl"><button class="qb" data-dec="' + esc(c.n) + '">&minus;</button><span class="d-q">' + c.q + '</span><button class="qb" data-inc="' + esc(c.n) + '">+</button></span>'
             : '<span class="d-q">' + c.q + '</span>') +
-          '<span class="d-n">' + esc(c.n) + '</span>' +
+          '<span class="d-n" data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
           (warn ? '<span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
-          '<span class="d-p">' + money(Store.cardValue(c.n, sid) * c.q) + '</span>' +
+          '<span class="d-p">' + money(Store.cardValue(c.n, sid) * c.q) + tickerHtml(c.n, sid, '') + '</span>' +
           (o.editable
             ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove">&times;</button>'
             : '<button class="m-act icon" data-move="' + esc(c.n) + '" title="Add to a deck">&#8942;</button>') +
@@ -870,6 +882,10 @@ const UI = (() => {
         const holder = el.closest('[data-card]');
         openModal(holder ? holder.getAttribute('data-card') : el.getAttribute('data-name'));
       });
+    });
+    // tapping a card name in any deck list opens the full card art
+    $$('[data-modal]', root).forEach((el) => {
+      el.addEventListener('click', (e) => { e.stopPropagation(); openModal(el.getAttribute('data-modal')); });
     });
   }
 

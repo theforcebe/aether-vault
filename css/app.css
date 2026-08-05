@@ -468,3 +468,36 @@ footer { border-top: 1px solid var(--line); margin-top: 60px; padding: 22px 20px
   .build-controls { flex-direction: column; align-items: stretch; }
   .build-controls select, .chk { width: 100%; }
 }
+
+/* ---------- v4.1: price ticker + deck-row art + mobile dashboard pass ---------- */
+.tick { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tick.up { color: var(--green); }
+.tick.down { color: var(--red); }
+.c-tick { padding: 2px 2px 0; }
+.d-p .tick { display: block; text-align: right; font-size: 10.5px; }
+.hold-v .tick { display: block; text-align: right; font-size: 10.5px; }
+.list-p .tick { font-size: 10.5px; }
+.d-n[data-modal] { cursor: pointer; }
+.d-n[data-modal]:hover { color: var(--accent); }
+
+@media (max-width: 640px) {
+  .ws-bar { flex-direction: column; align-items: flex-start; }
+  .chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; }
+  .panel { padding: 12px 13px; }
+  .stat-tile { padding: 11px 12px; }
+  .stat-value { font-size: 19px; letter-spacing: -0.3px; }
+  .stat-label { font-size: 10px; margin-bottom: 5px; }
+  .stat-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .two-col { gap: 10px; }
+  .hbar-row { grid-template-columns: 70px 1fr 44px; font-size: 11.5px; }
+  .hold-row { font-size: 12px; gap: 8px; }
+  .thumb { width: 24px; height: 33px; }
+  .mover { font-size: 12px; }
+  .page-h h1 { font-size: 18px; }
+  .deck-head { padding: 13px; gap: 12px; }
+  .deck-info h1 { font-size: 17px; }
+  .deck-stats { font-size: 12.5px; gap: 8px; }
+  .deck-actions input, .deck-actions select { max-width: 100%; }
+}

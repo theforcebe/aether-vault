@@ -18,6 +18,7 @@ const Store = (() => {
     lastbackup: 'av_lastbackup',
     seeded: 'av_seeded',
     oracle: 'av_oracle',
+    baseline: 'av_baseline',
   };
 
   const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
@@ -43,6 +44,7 @@ const Store = (() => {
     mycollection: load(LS.mycollection, null),
     lastbackup: load(LS.lastbackup, null),
     seeded: load(LS.seeded, false),
+    baseline: load(LS.baseline, {}),
     dirty: 0, // session mutation counter since load
   };
 
@@ -108,6 +110,28 @@ const Store = (() => {
   function cardValue(n, sid) { return unitPrice(n, sid, ''); }
   function collectionTotal() { return rows().reduce((s, r) => s + rowValue(r), 0); }
   function priceAge() { const ts = state.prices._ts; return ts ? (Date.now() - ts) / 36e5 : null; }
+
+  // ---------- price baseline (first price the app ever saw for a printing+finish) ----------
+  let baselineTimer = null;
+  function saveBaselineSoon() {
+    if (baselineTimer) return;
+    baselineTimer = setTimeout(() => { baselineTimer = null; save(LS.baseline, state.baseline); }, 800);
+  }
+  // Returns {d, pct} of current vs first-seen price, locking the baseline on first sight.
+  function ticker(n, sid, f) {
+    const cur = unitPrice(n, sid, f);
+    if (!cur) return null;
+    const key = (sid || norm(n)) + '|' + (f || '');
+    if (state.baseline[key] == null) {
+      state.baseline[key] = Math.round(cur * 100) / 100;
+      saveBaselineSoon();
+      return null; // first sight: no movement yet
+    }
+    const base = state.baseline[key];
+    const d = cur - base;
+    if (Math.abs(d) < 0.005) return null;
+    return { d, pct: base > 0 ? (d / base) * 100 : 0 };
+  }
 
   // ---------- decks (all user decks) ----------
   function userDeck(id) { return state.userdecks.find((d) => d.id === id) || null; }
@@ -266,6 +290,13 @@ const Store = (() => {
     state.prices = { ...map, _ts: Date.now() };
     save(LS.prev, state.prev);
     save(LS.prices, state.prices);
+    // lock baselines for printings we are pricing for the first time
+    for (const [sid, p] of Object.entries(map)) {
+      if (p.usd != null && state.baseline[sid + '|'] == null) state.baseline[sid + '|'] = p.usd;
+      if (p.usd_foil != null && state.baseline[sid + '|foil'] == null) state.baseline[sid + '|foil'] = p.usd_foil;
+      if (p.usd_etched != null && state.baseline[sid + '|etched'] == null) state.baseline[sid + '|etched'] = p.usd_etched;
+    }
+    save(LS.baseline, state.baseline);
     const snap = { date: new Date().toISOString().slice(0, 10), total: r2(collectionTotal()), decks: {} };
     for (const d of state.userdecks) snap.decks[d.id] = r2(userDeckTotal(d.id));
     state.snapshots = state.snapshots.filter((s) => s.date !== snap.date);
@@ -363,6 +394,7 @@ const Store = (() => {
       prices: state.prices, prev: state.prev, snapshots: state.snapshots,
       moves: state.moves, sessions: state.sessions, resolved: state.resolved,
       userdecks: state.userdecks, mycollection: state.mycollection, seeded: state.seeded,
+      baseline: state.baseline,
     })], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -385,6 +417,7 @@ const Store = (() => {
     if (state.mycollection) save(LS.mycollection, state.mycollection);
     else localStorage.removeItem(LS.mycollection);
     state.seeded = !!obj.seeded; save(LS.seeded, state.seeded);
+    state.baseline = obj.baseline || {}; save(LS.baseline, state.baseline);
     state.lastbackup = Date.now(); save(LS.lastbackup, state.lastbackup);
     state.dirty = 0;
     buildIndexes();
@@ -398,7 +431,7 @@ const Store = (() => {
       prices: 'Live prices', prev: 'Previous prices (movers)', snapshots: 'Value snapshots',
       moves: 'Move checklist', sessions: 'Imported lists', resolved: 'Resolved card cache',
       userdecks: 'Your decks', mycollection: 'Your collection', oracle: 'Analyzer card cache',
-      lastbackup: 'Backup timestamp', seeded: 'Seed flag',
+      lastbackup: 'Backup timestamp', seeded: 'Seed flag', baseline: 'First-seen price baselines',
     };
     const out = [];
     for (const [short, key] of Object.entries(LS)) {
@@ -421,7 +454,7 @@ const Store = (() => {
   return {
     state, norm, card, sidFor,
     rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
-    unitPrice, rowValue, cardValue, collectionTotal, priceAge,
+    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker,
     userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,
