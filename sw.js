@@ -1,22 +1,25 @@
 // Aether Vault service worker: offline vault browsing.
-// Same-origin: network-first (deploys stay instant), cache fallback offline.
+// Same-origin: network-first with forced revalidation (GitHub Pages sends a
+// 10-minute max-age; without no-cache the HTTP cache feeds the SW stale code
+// right after a deploy). Cache fallback keeps offline working.
 // Card images: cache-first with a size cap. APIs (Scryfall search/collection,
 // GitHub sync, EDHREC) are never intercepted; sync must always hit the network.
 
-const VERSION = 'av-v6';
+const BUILD = '7';
+const VERSION = 'av-v' + BUILD;
 const APP_CACHE = VERSION + '-app';
 const IMG_CACHE = VERSION + '-img';
 const CORE = [
-  './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/scryfall.js', 'js/rules.js', 'js/vector.js', 'js/analyze.js', 'js/builder.js',
-  'js/pilot.js', 'js/store.js', 'js/sync.js', 'js/ui.js', 'js/app.js',
-  'data/collection.js', 'data/cards.js', 'data/decks.js', 'data/manifest.js',
+  './', 'index.html', 'manifest.webmanifest',
+  'css/app.css?v=' + BUILD,
+  ...['scryfall', 'rules', 'vector', 'analyze', 'builder', 'pilot', 'store', 'sync', 'ui', 'app'].map((f) => 'js/' + f + '.js?v=' + BUILD),
+  ...['collection', 'cards', 'decks', 'manifest'].map((f) => 'data/' + f + '.js?v=' + BUILD),
 ];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(APP_CACHE)
-      .then((c) => Promise.allSettled(CORE.map((u) => c.add(u))))
+      .then((c) => Promise.allSettled(CORE.map((u) => c.add(new Request(u, { cache: 'no-cache' })))))
       .then(() => self.skipWaiting())
   );
 });
@@ -41,9 +44,9 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
 
   if (url.origin === location.origin) {
-    // network-first so deploys land immediately; cache keeps offline working
+    // revalidate every time so deploys land immediately; cache keeps offline working
     e.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();

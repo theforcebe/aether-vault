@@ -719,12 +719,15 @@ const UI = (() => {
     const id = Sync.identity();
     const m = Sync.meta();
     if (Sync.enabled()) {
-      return '<section class="panel"><div class="panel-h">Sync</div>' +
-        '<p class="dim">Signed in as <strong>' + esc(id.name) + '</strong>. Vault syncs encrypted to a private repo; only your name plus PIN can open it.' +
+      const lc = Sync.counts(Sync.currentVault());
+      return '<section class="panel"><div class="panel-h">Sync <span class="dim">build ' + (window.AV_BUILD || '?') + '</span></div>' +
+        '<p class="dim">Signed in as <strong>' + esc(id.name) + '</strong>. This device holds ' + lc.cards + ' cards and ' + lc.decks + ' decks. Vault syncs encrypted to a private repo; only your name plus PIN can open it.' +
         (m.lastPush ? ' Last push ' + Math.round((Date.now() - m.lastPush) / 60000) + ' min ago.' : '') + '</p>' +
         '<div class="page-actions"><button class="btn primary" id="sync-push">Push now</button>' +
         '<button class="btn" id="sync-pull">Pull from cloud</button>' +
-        '<button class="btn" id="sync-out">Sign out on this device</button></div></section>';
+        '<button class="btn" id="sync-out">Sign out on this device</button>' +
+        (Sync.hasSnapshot() ? '<button class="btn" id="sync-restore-snap">Restore pre-sync snapshot</button>' : '') +
+        '</div><div id="sync-status2" class="dim"></div></section>';
     }
     return '<section class="panel"><div class="panel-h">Sync across devices</div>' +
       '<p class="dim">Your vault encrypts in this browser with a key from your name plus PIN, then syncs to a private repo. The access token comes from Keanen personally; the PIN is the only thing that opens your data, and a lost PIN cannot be recovered.</p>' +
@@ -1337,9 +1340,11 @@ const UI = (() => {
         status.textContent = 'Checking...';
         const res = await Sync.enable($('#sync-name', root).value, $('#sync-pin', root).value, $('#sync-token', root).value.trim());
         if (res.found) {
+          const cc = Sync.counts(res.cloud);
+          const lc = Sync.counts(Sync.currentVault());
           sheet('A vault already exists for this name and PIN.', [
-            { label: 'Load the cloud vault onto this device', cb: () => { Sync.applyCloud(res.cloud); toast('Cloud vault loaded.'); App.refresh(); } },
-            { label: 'Overwrite cloud with this device', cb: async () => { await Sync.push(); toast('Cloud vault replaced.'); App.refresh(); } },
+            { label: 'Load cloud onto this device (' + cc.cards + ' cards, ' + cc.decks + ' decks)', cb: () => { Sync.applyCloud(res.cloud); toast('Cloud vault loaded.'); App.refresh(); } },
+            { label: 'Overwrite cloud with this device (' + lc.cards + ' cards, ' + lc.decks + ' decks)', cb: async () => { await Sync.push(); toast('Cloud vault replaced.'); App.refresh(); } },
           ]);
         } else {
           await Sync.push();
@@ -1351,7 +1356,27 @@ const UI = (() => {
     const sp = $('#sync-push', root);
     if (sp) sp.addEventListener('click', async () => {
       sp.disabled = true;
-      try { await Sync.push(); toast('Pushed.'); App.refresh(); } catch (e) { toast(e.message); }
+      const st2 = $('#sync-status2', root);
+      try {
+        const lc = Sync.counts(Sync.currentVault());
+        if (lc.cards === 0 && lc.decks === 0) {
+          if (st2) st2.textContent = 'Checking the cloud before pushing an empty vault...';
+          const cloud = await Sync.pull().catch(() => null);
+          const cc = cloud ? Sync.counts(cloud) : null;
+          if (st2) st2.textContent = '';
+          if (cc && (cc.cards > 0 || cc.decks > 0)) {
+            sheet('This device is empty, but the cloud vault holds ' + cc.cards + ' cards and ' + cc.decks + ' decks. Pushing would erase the cloud copy.', [
+              { label: 'Load the cloud vault here instead', cb: () => { Sync.applyCloud(cloud); toast('Cloud vault loaded.'); App.refresh(); } },
+              { label: 'Push the empty vault anyway', cb: async () => { await Sync.push(); toast('Pushed.'); App.refresh(); } },
+            ]);
+            sp.disabled = false;
+            return;
+          }
+        }
+        await Sync.push();
+        toast('Pushed ' + lc.cards + ' cards, ' + lc.decks + ' decks.');
+        App.refresh();
+      } catch (e) { toast(e.message); }
       sp.disabled = false;
     });
     const spl = $('#sync-pull', root);
@@ -1360,11 +1385,21 @@ const UI = (() => {
       try {
         const cloud = await Sync.pull();
         if (!cloud) toast('Nothing in the cloud yet.');
-        else sheet('Replace this device\'s vault with the cloud copy?', [
-          { label: 'Yes, load cloud vault', cb: () => { Sync.applyCloud(cloud); toast('Loaded.'); App.refresh(); } }]);
+        else {
+          const cc = Sync.counts(cloud);
+          const lc = Sync.counts(Sync.currentVault());
+          const warn = cc.cards === 0 && cc.decks === 0 && (lc.cards > 0 || lc.decks > 0)
+            ? ' The cloud copy is EMPTY and this device is not; loading it would blank this device (a snapshot is kept either way).'
+            : '';
+          sheet('Cloud vault: ' + cc.cards + ' cards, ' + cc.decks + ' decks. This device: ' + lc.cards + ' cards, ' + lc.decks + ' decks.' + warn, [
+            { label: 'Load cloud vault onto this device', cb: () => { Sync.applyCloud(cloud); toast('Loaded. Pre-pull snapshot saved.'); App.refresh(); } }]);
+        }
       } catch (e) { toast(e.message); }
       spl.disabled = false;
     });
+    const srs = $('#sync-restore-snap', root);
+    if (srs) srs.addEventListener('click', () => sheet('Restore this device to the snapshot taken before the last cloud pull?', [
+      { label: 'Restore snapshot', cb: () => { Sync.restoreSnapshot(); toast('Snapshot restored.'); App.refresh(); } }]));
     const so = $('#sync-out', root);
     if (so) so.addEventListener('click', () => sheet('Sign out of sync on this device? Local data stays.', [
       { label: 'Sign out', cb: () => { Sync.signOut(); toast('Signed out.'); App.refresh(); } }]));

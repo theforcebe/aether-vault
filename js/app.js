@@ -9,7 +9,7 @@ const App = (() => {
     if (!dataPromise) {
       dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors', 'combos', 'commanders-cards'].map((f) => new Promise((res) => {
         const s = document.createElement('script');
-        s.src = 'data/' + f + '.js';
+        s.src = 'data/' + f + '.js?v=' + (window.AV_BUILD || '0');
         s.onload = res;
         s.onerror = res; // optional bundles may not exist yet; the app runs without them
         document.head.appendChild(s);

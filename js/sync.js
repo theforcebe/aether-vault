@@ -61,6 +61,33 @@ const Sync = (() => {
     if (!r.ok) throw new Error('Sync read failed (' + r.status + ')');
     return r.json();
   }
+
+  // The contents API only inlines files up to 1MB; real vaults get bigger.
+  // Returns { sha, envelope } however large the file is, or null if absent.
+  async function fetchVaultFile(token, path) {
+    const metaRes = await apiGet(token, path);
+    if (!metaRes) return null;
+    let text;
+    if (metaRes.content) {
+      text = atob(metaRes.content.replace(/\n/g, ''));
+    } else {
+      const r = await fetch('https://api.github.com/repos/' + REPO + '/contents/' + path, {
+        headers: { ...headers(token), Accept: 'application/vnd.github.raw+json' },
+      });
+      if (!r.ok) throw new Error('Sync read failed (' + r.status + ')');
+      text = await r.text();
+    }
+    return { sha: metaRes.sha, envelope: JSON.parse(text) };
+  }
+
+  // what a vault object actually holds, for guard prompts
+  function counts(v) {
+    const rows = (v && v.mycollection) || [];
+    return {
+      cards: rows.reduce((s, r) => s + (r.q || 1), 0),
+      decks: ((v && v.userdecks) || []).length,
+    };
+  }
   async function apiPut(token, path, contentB64, message, sha) {
     const body = { message, content: contentB64 };
     if (sha) body.sha = sha;
@@ -98,10 +125,10 @@ const Sync = (() => {
     save(LS_ID, { name: name.trim(), pin, token });
     save(LS_META, { slug });
     // existing cloud vault?
-    const existing = await apiGet(token, 'users/' + slug + '.json');
+    const existing = await fetchVaultFile(token, 'users/' + slug + '.json');
     if (existing) {
       let cloud;
-      try { cloud = await decrypt(name, pin, JSON.parse(atob(existing.content.replace(/\n/g, '')))); }
+      try { cloud = await decrypt(name, pin, existing.envelope); }
       catch (e) { throw new Error('A vault exists for that name but the PIN does not open it.'); }
       return { found: true, cloud, sha: existing.sha };
     }
@@ -134,9 +161,9 @@ const Sync = (() => {
     if (!id) throw new Error('Sync is not set up.');
     const m = meta();
     const slug = m.slug || await slugFor(id.name, id.pin);
-    const existing = await apiGet(id.token, 'users/' + slug + '.json');
+    const existing = await fetchVaultFile(id.token, 'users/' + slug + '.json');
     if (!existing) return null;
-    const cloud = await decrypt(id.name, id.pin, JSON.parse(atob(existing.content.replace(/\n/g, ''))));
+    const cloud = await decrypt(id.name, id.pin, existing.envelope);
     save(LS_META, { ...m, slug, lastPull: Date.now() });
     return cloud;
   }
@@ -145,6 +172,13 @@ const Sync = (() => {
     // keep a local snapshot first so nothing is ever lost
     try { localStorage.setItem('av_prepull_snapshot', JSON.stringify(currentVault())); } catch (e) { /* space */ }
     Store.importBackup(cloud);
+  }
+
+  function hasSnapshot() { return !!localStorage.getItem('av_prepull_snapshot'); }
+  function restoreSnapshot() {
+    const raw = localStorage.getItem('av_prepull_snapshot');
+    if (!raw) throw new Error('No snapshot on this device.');
+    Store.importBackup(JSON.parse(raw));
   }
 
   // debounced autosync
@@ -163,5 +197,5 @@ const Sync = (() => {
     }
   }
 
-  return { REPO, enabled, identity, meta, enable, signOut, push, pull, applyCloud, autosyncTick, encrypt, decrypt, slugFor, currentVault };
+  return { REPO, enabled, identity, meta, enable, signOut, push, pull, applyCloud, autosyncTick, encrypt, decrypt, slugFor, currentVault, counts, hasSnapshot, restoreSnapshot };
 })();
