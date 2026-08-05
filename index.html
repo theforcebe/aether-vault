@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aether Vault</title>
+  <meta name="description" content="A Magic: The Gathering collection and deck vault with live pricing.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%238b3dff'/><stop offset='.5' stop-color='%23f1078f'/><stop offset='1' stop-color='%23ffd166'/></linearGradient></defs><rect width='100' height='100' rx='22' fill='%230d0916'/><path d='M50 14 78 50 50 86 22 50Z' fill='url(%23g)'/></svg>">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="av-grad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#8b3dff"/>
+        <stop offset="0.45" stop-color="#f1078f"/>
+        <stop offset="0.8" stop-color="#ff8a00"/>
+        <stop offset="1" stop-color="#ffd166"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <div id="price-progress"><div></div></div>
+
+  <header class="topbar">
+    <a class="logo" href="#/vault">Aether Vault</a>
+    <nav class="nav">
+      <a href="#/vault">Vault</a>
+      <a href="#/collection">Collection</a>
+      <a href="#/moves">Moves<span id="moves-count"></span></a>
+      <a href="#/import">Import</a>
+    </nav>
+    <button class="btn primary" id="btn-prices">Refresh prices</button>
+    <button class="btn" id="btn-backup">Backup</button>
+    <label class="btn" for="file-restore">Restore</label>
+    <input type="file" id="file-restore" accept="application/json" style="display:none">
+  </header>
+
+  <main id="view"></main>
+
+  <footer>
+    Card data and images courtesy of Scryfall. Aether Vault is unofficial Fan Content permitted under the
+    Wizards of the Coast Fan Content Policy. Card images and mana symbols are copyright Wizards of the Coast, LLC.<br>
+    Prices are daily estimates provided via Scryfall and carry absolutely no guarantee. See stores for final prices.<br>
+    Your moves, imported decks, and price history live only in this browser. Use Backup to save them to a file.
+  </footer>
+
+  <script src="data/collection.js"></script>
+  <script src="data/cards.js"></script>
+  <script src="data/decks.js"></script>
+  <script src="js/scryfall.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
