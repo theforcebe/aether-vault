@@ -182,21 +182,36 @@ const Analyze = (() => {
         if (denom > 0) brainMatches.push({ key, name: tName(key), score: hit / denom, decks: arch.decks });
       }
       brainMatches.sort((a, b) => b.score - a.score);
-      brainMatches = brainMatches.filter((m) => m.score >= 0.15).slice(0, 3);
+      brainMatches = brainMatches.filter((m) => m.score >= 0.08).slice(0, 3);
       const top = brainMatches[0];
       if (top) {
         const arch = BR.archetypes[top.key];
+        const deckNormSet = new Set(cards.map((c) => Store.norm(c.n)));
+        const vec = (typeof Vec !== 'undefined' && Vec.ready()) ? Vec.deckVector(cards.map((c) => c.n)) : null;
         const items = [];
         for (const bc of arch.cards) {
-          if (bc.f < 0.28) break;
+          if (bc.f < 0.2) continue;
           if (deckNames.has(lower(bc.n))) continue;
           if (ci && [...(bc.ci || '')].some((x) => !ci.includes(x))) continue;
           const own = Store.byName[Store.norm(bc.n)];
-          items.push({ n: bc.n, f: bc.f, usd: bc.usd, sid: bc.sid, owned: !!(own && own.qty > 0) });
-          if (items.length >= 10) break;
+          const cos = vec ? Vec.scoreCard(vec, bc.n) : 0;
+          items.push({
+            n: bc.n, f: bc.f, usd: bc.usd, sid: bc.sid,
+            owned: !!(own && own.qty > 0),
+            score: bc.f * 0.6 + cos * 0.4,
+            because: vec ? Vec.because(bc.n, deckNormSet, 3) : [],
+          });
         }
-        if (items.length) brainSuggestions = { arch: top.name, decks: arch.decks, items };
+        items.sort((a, b) => b.score - a.score);
+        if (items.length) brainSuggestions = { arch: top.name, decks: arch.decks, items: items.slice(0, 12) };
       }
+    }
+
+    // closest real decks via vector retrieval
+    let similarDecks = [];
+    if (typeof Vec !== 'undefined' && Vec.ready()) {
+      const vec = Vec.deckVector(cards.map((c) => c.n));
+      if (vec) similarDecks = Vec.nearestDecks(vec, 3);
     }
 
     return {
@@ -206,7 +221,7 @@ const Analyze = (() => {
       combos, fastCombos: fastCombos.length,
       bracket, feel, why, power: Math.round(power * 10) / 10,
       archetypes: arch.slice(0, 4), suggestions, cuts: cuts.map((c) => ({ n: c.n, mv: c.mv })),
-      brainMatches, brainSuggestions,
+      brainMatches, brainSuggestions, similarDecks,
     };
   }
 

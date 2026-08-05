@@ -42,6 +42,92 @@ const Builder = (() => {
     const b = window.VAULT_BRAIN;
     return b && b.archetypes && b.archetypes[key] ? b.archetypes[key] : null;
   }
+  function directory(key) {
+    const d = window.VAULT_COMMANDERS;
+    return d && d.archetypes && d.archetypes[key] ? d.archetypes[key] : [];
+  }
+  function allCommanders() {
+    const d = window.VAULT_COMMANDERS;
+    return d && d.commanders ? d.commanders : [];
+  }
+  function findCommander(name) {
+    const v = (name || '').trim().toLowerCase();
+    if (!v) return null;
+    return allCommanders().find((c) => c.n.toLowerCase() === v) ||
+      allCommanders().find((c) => c.n.toLowerCase().startsWith(v)) || null;
+  }
+  // Archetypes that genuinely fit a commander, best first.
+  function fittingArchetypes(cmdEntry) {
+    if (!cmdEntry || !cmdEntry.archs) return [];
+    const t = T();
+    return Object.entries(cmdEntry.archs)
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, w]) => {
+        const a = (t.archetypes || []).find((x) => x.key === key);
+        return { key, w, name: a ? a.name : key.charAt(0).toUpperCase() + key.slice(1) };
+      });
+  }
+
+  // Load any commander's popular list on demand (EDHREC average deck, CORS-open),
+  // enrich through Scryfall, classify roles, and cache locally.
+  const TPL_LRU = 'av_tpl_lru';
+  async function loadCommanderTemplate(slug, onProgress) {
+    // baked?
+    for (const a of T().archetypes) {
+      const i = a.commanders.findIndex((c) => c.slug === slug);
+      if (i >= 0) return a.commanders[i];
+    }
+    // cached?
+    try {
+      const c = localStorage.getItem('av_tpl_' + slug);
+      if (c) return JSON.parse(c);
+    } catch (e) { /* refetch */ }
+    if (onProgress) onProgress('Fetching the popular list...');
+    const r = await fetch('https://json.edhrec.com/pages/average-decks/' + slug + '.json', { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('Could not load that commander\'s list.');
+    const d = await r.json();
+    if (!d.deck || !d.deck.cards) throw new Error('No average deck available for that commander yet.');
+    const cmdName = (d.deck.commander || [])[0] || '';
+    const names = [cmdName];
+    const raw = [];
+    for (const group of Object.values(d.deck.cards)) {
+      for (const [n, q] of group) { raw.push({ n, q }); names.push(n); }
+    }
+    if (onProgress) onProgress('Verifying ' + names.length + ' cards...');
+    const res = await Scry.fullCards(names.map((name) => ({ name })), (done, total) => {
+      if (onProgress) onProgress('Verifying ' + done + ' of ' + total + '...');
+    });
+    const roleOf = (f) => {
+      const c = { o: f.o, t: f.t, mv: f.mv };
+      if (Rules.isLand(c)) return 'land';
+      if (Rules.isWipe(c)) return 'wipe';
+      if (Rules.isRemoval(c)) return 'removal';
+      if (Rules.isRamp(c)) return 'ramp';
+      if (Rules.isDraw(c)) return 'draw';
+      return 'none';
+    };
+    const cf = res.byName[cmdName.toLowerCase()];
+    const cards = [];
+    for (const c of raw) {
+      const f = res.byName[c.n.toLowerCase()];
+      if (!f) continue;
+      cards.push({
+        n: f.name, q: c.q, sid: f.sid, usd: f.usd, mv: f.mv, ci: f.ci,
+        t: f.t.includes('land') ? 'Land' : f.t.includes('creature') ? 'Creature' : f.t.includes('instant') ? 'Instant' : f.t.includes('sorcery') ? 'Sorcery' : f.t.includes('planeswalker') ? 'Planeswalker' : f.t.includes('artifact') ? 'Artifact' : f.t.includes('enchantment') ? 'Enchantment' : 'Other',
+        role: roleOf(f), gc: Rules.GC.has(f.name.toLowerCase()) ? 1 : 0,
+        basic: /^basic land/.test(f.t) ? 1 : 0,
+      });
+    }
+    const tpl = { name: cmdName, slug, ci: cf ? cf.ci : '', sid: cf ? cf.sid : '', usd: cf ? cf.usd : null, cards };
+    try {
+      localStorage.setItem('av_tpl_' + slug, JSON.stringify(tpl));
+      const lru = JSON.parse(localStorage.getItem(TPL_LRU) || '[]').filter((s) => s !== slug);
+      lru.push(slug);
+      while (lru.length > 24) localStorage.removeItem('av_tpl_' + lru.shift());
+      localStorage.setItem(TPL_LRU, JSON.stringify(lru));
+    } catch (e) { /* cache optional */ }
+    return tpl;
+  }
 
   const BASIC_FOR = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
 
@@ -81,10 +167,11 @@ const Builder = (() => {
   }
 
   function build(opts) {
-    // opts: {archKey, cmdIdx, bracket (2|3|4), useCollection, substitute, ownedFacts (optional map)}
-    const a = archetype(opts.archKey);
-    if (!a) return { error: 'Unknown theme.' };
-    const cmd = a.commanders[Math.min(opts.cmdIdx || 0, a.commanders.length - 1)];
+    // opts: {archKey (may be null with cmdOverride), cmdIdx, cmdOverride, bracket, useCollection, substitute, ownedFacts}
+    const a = opts.archKey ? archetype(opts.archKey) : null;
+    if (!a && !opts.cmdOverride) return { error: 'Unknown theme.' };
+    const cmd = opts.cmdOverride || a.commanders[Math.min(opts.cmdIdx || 0, a.commanders.length - 1)];
+    const archName = a ? a.name : 'Popular build';
     const ci = cmd.ci || '';
     const notes = [];
     const cards = cmd.cards.map((c) => ({ ...c }));
@@ -204,7 +291,7 @@ const Builder = (() => {
       commanderOwned: !!(opts.useCollection && Store.byName[Store.norm(cmd.name)]),
       gcs: cards.filter((c) => c.gc).map((c) => c.n),
     };
-    return { archetype: a.name, commander: cmd, cards, notes, stats, recommendations };
+    return { archetype: archName, commander: cmd, cards, notes, stats, recommendations };
   }
 
   function decklistText(result) {
@@ -240,5 +327,5 @@ const Builder = (() => {
     return cmp.rows.filter((r) => r.need > 0).map((r) => r.need + ' ' + r.n).join('\n');
   }
 
-  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText };
+  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor };
 })();

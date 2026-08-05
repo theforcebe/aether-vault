@@ -261,6 +261,37 @@ const Store = (() => {
     buildIndexes();
     touch();
   }
+  // Mark cards as physically purchased: they join the collection under a Purchased binder.
+  function addPurchased(cards) {
+    if (!state.mycollection) {
+      state.mycollection = { label: 'My collection', uploaded: new Date().toISOString(), rows: [] };
+    }
+    let added = 0;
+    for (const c of cards) {
+      state.mycollection.rows.push({
+        n: c.n, b: 'Purchased', bt: 'binder', s: '', cn: '', f: '',
+        q: c.q || 1, sid: c.sid || sidFor(c.n),
+      });
+      added += c.q || 1;
+    }
+    save(LS.mycollection, state.mycollection);
+    buildIndexes();
+    touch();
+    return added;
+  }
+  // Deck cards not covered by the collection (basics excluded).
+  function missingFromCollection(cards) {
+    const BAS = new Set(['plains', 'island', 'swamp', 'mountain', 'forest', 'wastes']);
+    const out = [];
+    for (const c of cards) {
+      const nl = c.n.toLowerCase();
+      if (BAS.has(nl) || nl.startsWith('snow-covered')) continue;
+      const own = byName[norm(c.n)];
+      const have = own ? own.qty : 0;
+      if (have < c.q) out.push({ n: c.n, sid: c.sid || sidFor(c.n), q: c.q - have, unit: unitPrice(c.n, c.sid || sidFor(c.n), '') });
+    }
+    return out;
+  }
   function binderSummary() {
     const map = {};
     for (const r of rows()) {
@@ -459,6 +490,7 @@ const Store = (() => {
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,
     parseManaBoxCsv, uploadCollection, clearMyCollection, binderSummary, importBinderAsDeck,
+    addPurchased, missingFromCollection,
     applyFreshPrices, movers, topHoldings, distribution,
     addMove, removeMove, clearMoves,
     saveSession, deleteSession, cacheResolved, missingSidNames,

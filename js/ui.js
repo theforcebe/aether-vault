@@ -202,7 +202,8 @@ const UI = (() => {
       '<span class="hold-n">' + esc(h.n) + (h.f ? ' <span class="badge">' + h.f + '</span>' : '') + '</span>' +
       '<span class="dim">x' + h.q + '</span><span class="hold-v">' + money(h.total) + '<br>' + tickerHtml(h.n, h.sid, h.f) + '</span></div>').join('');
     const dist = Store.distribution();
-    const deckVals = deckRefs.map((r) => [r.name.split(',')[0], Math.round(Store.userDeckTotal(r.key))]);
+    const deckVals = deckRefs.map((r) => [r.name.split(',')[0], Math.round(Store.userDeckTotal(r.key))])
+      .sort((a, b) => b[1] - a[1]);
 
     const colBar = Store.hasCollection()
       ? '<div class="ws-bar"><div><span class="ws-label">Collection</span> <strong>' + esc(Store.collectionLabel()) + '</strong> <span class="dim">' + nCards.toLocaleString() + ' cards</span></div>' +
@@ -377,6 +378,8 @@ const UI = (() => {
             : '<span class="d-q">' + c.q + '</span>') +
           '<span class="d-n" data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
           (warn ? '<span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
+          (o.showNeed && !/^(plains|island|swamp|mountain|forest|wastes|snow-covered)/i.test(c.n) && (!Store.byName[Store.norm(c.n)] || Store.byName[Store.norm(c.n)].qty < c.q)
+            ? '<button class="btn small buy-b" data-bought="' + esc(c.n) + '">Bought</button>' : '') +
           '<span class="d-p">' + money(Store.cardValue(c.n, sid) * c.q) + tickerHtml(c.n, sid, '') + '</span>' +
           (o.editable
             ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove">&times;</button>'
@@ -388,7 +391,7 @@ const UI = (() => {
     return cols;
   }
 
-  function reportHtml(r) {
+  function reportHtml(r, ctx) {
     if (!r) return '';
     const bracketInfo = Rules.BRACKETS[r.bracket - 1];
     const feelInfo = Rules.BRACKETS[r.feel - 1];
@@ -415,11 +418,18 @@ const UI = (() => {
       (r.combos.length ? '<div class="sig-row"><span class="sig-l">Combos</span>' + r.combos.map((p) => '<span class="badge ' + (p.mvSum <= 6 ? 'warn' : '') + '">' + esc(p.a + ' + ' + p.b) + '</span>').join('') + '</div>' : '') +
       (r.archetypes.length ? '<div class="sig-row"><span class="sig-l">Archetypes</span>' + r.archetypes.map((a) => '<span class="badge gc">' + esc(a.name) + ' (' + a.hits + ')</span>').join('') + '</div>' : '') +
       (r.brainMatches && r.brainMatches.length ? '<div class="sig-row"><span class="sig-l">Decks like yours</span>' + r.brainMatches.map((m) => '<span class="badge">' + esc(m.name) + ' ' + Math.round(m.score * 100) + '% (' + m.decks + ' decks)</span>').join('') + '</div>' : '') +
+      (r.similarDecks && r.similarDecks.length ? '<div class="sig-row"><span class="sig-l">Closest real decks</span>' + r.similarDecks.map((s) =>
+        '<a class="badge link" href="' + s.url + '" target="_blank" rel="noopener">' + esc(s.commander) + ' ' + Math.round(s.score * 100) + '%</a>').join('') + '</div>' : '') +
       '</div></div>' +
-      (r.brainSuggestions ? '<div class="panel-h sub">Most-played in ' + esc(r.brainSuggestions.arch) + ' decks (' + r.brainSuggestions.decks + ' sampled) that this list is missing</div>' +
-        '<div class="sig-row">' + r.brainSuggestions.items.map((i) =>
-          '<span class="badge ' + (i.owned ? 'own' : 'buy') + '" data-hover-sid="' + (i.sid || '') + '">' + esc(i.n) + ' ' + Math.round(i.f * 100) + '%' +
-          (i.owned ? ' owned' : (i.usd != null ? ' ' + money(i.usd) : '')) + '</span>').join('') + '</div>' : '') +
+      (r.brainSuggestions ? '<div class="panel-h sub">What to add, from ' + r.brainSuggestions.decks + ' real ' + esc(r.brainSuggestions.arch) + ' decks</div>' +
+        r.brainSuggestions.items.map((i) =>
+          '<div class="sugg-row" data-hover-sid="' + (i.sid || '') + '">' +
+          '<span class="sugg-n">' + esc(i.n) + '</span>' +
+          '<span class="dim">' + Math.round(i.f * 100) + '% of decks' + (i.because && i.because.length ? ', with ' + i.because.slice(0, 2).map(esc).join(' and ') : '') + '</span>' +
+          (i.owned ? '<span class="badge own">owned</span>' : '<span class="badge buy">' + (i.usd != null ? money(i.usd) : 'buy') + '</span>') +
+          (ctx && ctx.editableId ? '<button class="btn small" data-addcard="' + esc(i.n) + '">Add</button>' : '') +
+          '</div>').join('') +
+        '<div class="page-actions" style="margin-top:10px"><button class="btn primary" data-upgrade="1">Create upgraded build</button></div>' : '') +
       (r.suggestions.length ? '<div class="panel-h sub">Suggestions</div>' + r.suggestions.map((s) =>
         '<div class="sugg"><div>' + esc(s.text) + '</div>' +
         (s.picks.length ? '<div class="sig-row">' + s.picks.map((p) => '<span class="badge">' + esc(p) + '</span>').join('') + '</div>' : '') + '</div>').join('') : '') +
@@ -452,20 +462,29 @@ const UI = (() => {
       '<select id="deck-cmd"><option value="">No commander set</option>' +
       d.cards.map((c) => '<option ' + (Store.norm(c.n) === Store.norm(d.commander) ? 'selected' : '') + '>' + esc(c.n) + '</option>').join('') + '</select>' +
       '<button class="btn small" id="export-mydeck">Copy list</button>' +
+      '<a class="btn small" href="#/pilot/' + id + '">Pilot guide</a>' +
       '<button class="btn small danger" id="del-mydeck">Delete</button></div>' +
       '<div class="add-wrap"><input id="add-card" placeholder="Add a card, type to search" autocomplete="off"><div id="add-sug"></div></div>';
-    return deckHeadHtml(dv, extra, id) +
-      '<div id="report-slot">' + (reports[id] ? reportHtml(reports[id]) : '') + '</div>' +
-      '<div class="deck-cols">' + deckColumnsHtml(dv.cards, { editable: true, ci: dv.ci || null }) + '</div>';
+    const missing = Store.missingFromCollection(dv.cards);
+    const missCost = missing.reduce((s, m) => s + m.unit * m.q, 0);
+    const buyBar = missing.length
+      ? '<div class="deck-actions"><span class="badge buy">' + missing.reduce((s, m) => s + m.q, 0) + ' to buy, ' + money(missCost) + '</span>' +
+        '<button class="btn small" id="buy-all">Mark all as bought</button>' +
+        '<button class="btn small" id="dl-missing">Buy list .txt</button></div>'
+      : (Store.hasCollection() ? '<div class="deck-actions"><span class="badge own">fully owned</span></div>' : '');
+    return deckHeadHtml(dv, extra + buyBar, id) +
+      '<div id="report-slot">' + (reports[id] ? reportHtml(reports[id], { editableId: id }) : '') + '</div>' +
+      '<div class="deck-cols">' + deckColumnsHtml(dv.cards, { editable: true, ci: dv.ci || null, showNeed: Store.hasCollection() }) + '</div>';
   }
 
   function viewSession(id) {
     const s = Store.state.sessions.find((x) => x.id === id);
     if (!s) return '<p>Not found.</p>';
     const dv = { name: s.name, sub: 'Imported list', ci: '', commanderSid: '', cards: s.cards.map((c) => ({ ...c, src: 'user' })) };
-    const extra = '<div class="deck-actions"><button class="btn small" id="sess-edit" data-id="' + s.id + '">Make editable copy</button></div>';
+    const extra = '<div class="deck-actions"><button class="btn small" id="sess-edit" data-id="' + s.id + '">Make editable copy</button>' +
+      '<a class="btn small" href="#/pilot/session:' + s.id + '">Pilot guide</a></div>';
     return deckHeadHtml(dv, extra, 'session:' + id) +
-      '<div id="report-slot">' + (reports['session:' + id] ? reportHtml(reports['session:' + id]) : '') + '</div>' +
+      '<div id="report-slot">' + (reports['session:' + id] ? reportHtml(reports['session:' + id], {}) : '') + '</div>' +
       '<div class="deck-cols">' + deckColumnsHtml(dv.cards, {}) + '</div>';
   }
 
@@ -514,22 +533,45 @@ const UI = (() => {
   function viewBuild(params) {
     const t = Builder.templates();
     if (!t.archetypes.length) return '<p class="dim">Deck templates failed to load.</p>';
-    const archKey = params.arch || t.archetypes[0].key;
-    const a = Builder.archetype(archKey) || t.archetypes[0];
-    const cmdIdx = Math.min(parseInt(params.cmd || '0', 10), a.commanders.length - 1);
-    const cmd = a.commanders[cmdIdx];
+    const all = Builder.allCommanders();
+    const chosen = params.cmd ? Builder.findCommander(params.cmd) : null;
+    const fits = chosen ? Builder.fittingArchetypes(chosen) : [];
     const bracket = parseInt(params.bracket || '3', 10);
+
+    // commander-first: search anyone; archetype options are only what fits them.
+    let archOptions;
+    if (chosen) {
+      archOptions = fits.length
+        ? '<option value="auto">Best fit: ' + esc(fits[0].name) + '</option>' +
+          fits.slice(1, 6).map((f) => '<option value="' + f.key + '" ' + (params.arch === f.key ? 'selected' : '') + '>' + esc(f.name) + '</option>').join('')
+        : '<option value="auto">Most popular build</option>';
+    } else {
+      archOptions = t.archetypes.map((x) => '<option value="' + x.key + '" ' + (params.arch === x.key ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('');
+    }
+    const dlSource = params.arch && !chosen && Builder.directory(params.arch).length
+      ? Builder.directory(params.arch) : all;
+    const featured = !chosen && !all.length
+      ? '<select id="bld-cmd">' + (Builder.archetype(params.arch || t.archetypes[0].key) || t.archetypes[0]).commanders.map((c, i) => '<option value="' + i + '">' + esc(c.name) + '</option>').join('') + '</select>'
+      : '';
+
+    const cmdLine = chosen
+      ? '<div class="tile-sub" style="margin-top:10px">' + cardImgHtml(chosen.n, chosen.sid, 'tile-art bld-art') +
+        '<span><strong>' + esc(chosen.n) + '</strong> ' + pips(chosen.ci) + ' <span class="dim">' + chosen.decks.toLocaleString() + ' decks on record' +
+        (fits.length ? '' : ', no mapped theme, the build follows its most popular list') + '</span></span></div>'
+      : '';
+
     return '<div class="page-h"><h1>Deck builder</h1></div>' +
-      '<p class="dim">Pick a theme and a bracket. The build checks itself against your collection; basic lands count as owned.</p>' +
+      '<p class="dim">Search a commander, pick a build that fits them, set your bracket.</p>' +
       '<section class="panel"><div class="build-controls">' +
-      '<input id="bld-theme" placeholder="Describe a theme: sacrifice, dragons, lifegain..." value="">' +
-      '<select id="bld-arch">' + t.archetypes.map((x) => '<option value="' + x.key + '" ' + (x.key === a.key ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select>' +
-      '<select id="bld-cmd">' + a.commanders.map((c, i) => '<option value="' + i + '" ' + (i === cmdIdx ? 'selected' : '') + '>' + esc(c.name) + '</option>').join('') + '</select>' +
+      '<input id="bld-cmdsearch" list="bld-cmd-dl" placeholder="Search ' + (all.length ? all.length.toLocaleString() : '') + ' commanders" value="' + esc(params.cmd || '') + '">' +
+      '<datalist id="bld-cmd-dl">' + dlSource.slice(0, 900).map((c) => '<option value="' + esc(c.n) + '">' + (c.decks || 0).toLocaleString() + ' decks</option>').join('') + '</datalist>' +
+      featured +
+      '<select id="bld-arch" title="Build style">' + archOptions + '</select>' +
       '<select id="bld-bracket"><option value="2" ' + (bracket === 2 ? 'selected' : '') + '>Bracket 2: Core</option><option value="3" ' + (bracket === 3 ? 'selected' : '') + '>Bracket 3: Upgraded</option><option value="4" ' + (bracket === 4 ? 'selected' : '') + '>Bracket 4: Optimized</option></select>' +
       '<label class="chk"><input type="checkbox" id="bld-own" ' + (Store.hasCollection() ? 'checked' : 'disabled') + '> Use my collection</label>' +
       '<label class="chk"><input type="checkbox" id="bld-sub" ' + (Store.hasCollection() ? '' : 'disabled') + '> Substitute owned equivalents</label>' +
       '<button class="btn primary" id="bld-go">Build</button></div>' +
-      '<div class="tile-sub" style="margin-top:10px">' + cardImgHtml(cmd.name, cmd.sid, 'tile-art bld-art') + '<span>Commander: <strong>' + esc(cmd.name) + '</strong> ' + pips(cmd.ci) + (cmd.usd ? ' <span class="dim">' + money(cmd.usd) + '</span>' : '') + '</span></div>' +
+      cmdLine +
       '<div id="bld-status" class="dim"></div></section>' +
       '<div id="bld-result"></div>';
   }
@@ -615,8 +657,86 @@ const UI = (() => {
       '<button class="btn danger" id="data-clear">Clear all local data</button></div></section>';
   }
 
+  // ---------- pilot guide ----------
+  function viewPilot() {
+    return '<div class="pilot-bar"><a class="btn" href="javascript:history.back()">Back</a>' +
+      '<button class="btn primary" id="pilot-print">Save as PDF</button></div>' +
+      '<div id="pilot-doc" class="pilot-doc"><div class="dim" style="padding:60px;text-align:center">Reading the deck and building your guide...</div></div>';
+  }
+
+  function pilotDocHtml(m) {
+    const sec = (num, title, body) =>
+      '<section class="p-sec"><div class="p-num">' + num + '</div><div class="p-body"><h2>' + title + '</h2>' + body + '</div></section>';
+    const list = (items) => '<ul class="p-list">' + items.map((i) => '<li>' + esc(i) + '</li>').join('') + '</ul>';
+    const openBody =
+      '<p>Keep hands with <strong>' + m.landTarget + ' lands</strong>' +
+      (m.rampNames.length ? ' plus early mana: <strong>' + m.rampNames.map(esc).join(', ') + '</strong> let you deploy a turn ahead, and this deck rewards being early' : '') + '.</p>' +
+      (m.engineNames.length ? '<p>The cards you are hoping to see: <strong>' + m.engineNames.map(esc).join(', ') + '</strong>. Any one of them plus lands is a keep, because each starts the engine the rest of the deck feeds.</p>' : '') +
+      (m.interactionNames.length ? '<p>A hand with one of <strong>' + m.interactionNames.map(esc).join(', ') + '</strong> buys time against faster starts.</p>' : '') +
+      '<p>Mulligan hands with no play before turn three, and hands that are all top end. A six-card hand that does something beats seven that do nothing.</p>';
+    const gameBody =
+      '<p><strong>Early, turns 1 to 3.</strong> Lands on curve, ramp first, then the cheapest engine piece. Spend these turns setting the table, not fighting over small plays.</p>' +
+      '<p><strong>Middle, turns 4 to 6.</strong> ' + (m.commander ? 'Land ' + esc(m.commander) + ' when you can use or protect it the same turn, not just because you can cast it. ' : '') + 'Deploy engines ahead of payoffs, and read who at the table can punish you for tapping out.</p>' +
+      '<p><strong>Late.</strong> ' + (m.finishers.length ? 'Your closers are <strong>' + m.finishers.map(esc).join(', ') + '</strong>. ' : '') +
+      (m.combos.length ? m.combos.map((p) => esc(p.a) + ' with ' + esc(p.b) + ' is ' + esc(p.result) + '; assemble it with protection open, not into three untapped blue mana.').join(' ') : 'Convert the engine into pressure before the table unites against the biggest board.') + '</p>';
+    const keyBody = m.keyCards.map((k) =>
+      '<div class="p-key"><div class="p-key-n">' + esc(k.n) + '</div><div class="p-key-w">' + esc(k.why) + '</div></div>').join('');
+    const weakBody = list(m.weaknesses) +
+      (m.hate.length ? '<p class="p-hate">Cards to fear: <strong>' + m.hate.map(esc).join(', ') + '</strong>. Assume one is at the table and keep an answer or a rebuild plan.</p>' : '');
+
+    return '<header class="p-head">' +
+      '<div class="p-head-l"><div class="p-eyebrow">Pilot guide</div>' +
+      '<h1>' + esc(m.name) + '</h1>' +
+      '<div class="p-meta">' + (m.commander ? esc(m.commander) + ' &middot; ' : '') + esc(m.archetype) + ' &middot; Bracket ' + m.bracket + ' ' + esc(m.bracketName) + '</div>' +
+      '<div class="p-stats"><div><span>' + m.count + '</span>cards</div><div><span>' + money(m.value) + '</span>value</div>' +
+      '<div><span>' + m.avgMv + '</span>avg mana</div><div><span>' + m.comp.lands + '</span>lands</div></div></div>' +
+      (m.commanderSid ? '<img class="p-art" src="' + Scry.img(m.commanderSid, 'normal') + '" alt="">' : '') +
+      '</header>' +
+      sec('01', 'The game plan', '<p>' + esc(m.plan) + '</p>') +
+      sec('02', 'Opening hands', openBody) +
+      sec('03', 'How the game goes', gameBody) +
+      sec('04', 'Key cards', keyBody) +
+      sec('05', 'Where you are strong', list(m.strengths)) +
+      sec('06', 'Where you are weak', weakBody) +
+      sec('07', 'Play tips', list(m.tips)) +
+      '<footer class="p-foot">Generated by Aether Vault &middot; ' + new Date().toISOString().slice(0, 10) +
+      ' &middot; Card data via Scryfall &middot; Unofficial Fan Content under the Wizards Fan Content Policy</footer>';
+  }
+
   // ---------- wiring ----------
   function wire(root, route, params) {
+    // pilot guide
+    if (route.startsWith('#/pilot/')) {
+      const pkey = route.slice('#/pilot/'.length);
+      const pb = $('#pilot-print', root);
+      if (pb) pb.addEventListener('click', () => window.print());
+      (async () => {
+        let dv, rkey;
+        if (pkey.startsWith('session:')) {
+          const s = Store.state.sessions.find((x) => x.id === pkey.slice(8));
+          if (!s) return;
+          dv = { name: s.name, commander: '', commanderSid: '', ci: '', cards: s.cards.map((c) => ({ ...c, src: 'user' })) };
+          rkey = pkey;
+        } else {
+          dv = Store.deckView(pkey);
+          if (!dv) return;
+          rkey = pkey;
+        }
+        try {
+          let r = reports[rkey];
+          if (!r) {
+            r = await Analyze.run({ cards: dv.cards, ci: dv.ci }, () => {});
+            reports[rkey] = r;
+          }
+          const m = Pilot.model(dv, r);
+          const doc = $('#pilot-doc');
+          if (doc) doc.innerHTML = pilotDocHtml(m);
+        } catch (e) {
+          const doc = $('#pilot-doc');
+          if (doc) doc.innerHTML = '<div class="dim" style="padding:60px;text-align:center">Could not reach Scryfall to analyze this deck. Try again.</div>';
+        }
+      })();
+    }
     $$('.chip[data-series]', root).forEach((c) => c.addEventListener('click', () => App.go('#/dashboard', { series: c.getAttribute('data-series') })));
     const wsc = $('#ws-clear', root);
     if (wsc) wsc.addEventListener('click', () => sheet('Remove your uploaded collection from this browser?', [
@@ -702,13 +822,82 @@ const UI = (() => {
       try {
         const r = await Analyze.run(deck, (d, t) => { an.textContent = 'Reading ' + d + '/' + t; });
         reports[key] = r;
+        App.refresh();
         const slot = $('#report-slot');
-        if (slot) { slot.innerHTML = reportHtml(r); slot.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        if (slot) slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) {
         toast('Analysis failed to reach Scryfall. Try again.');
+        an.disabled = false;
+        an.textContent = orig;
       }
-      an.disabled = false;
-      an.textContent = orig;
+    });
+
+    // report actions: add a suggestion, create an upgraded build
+    $$('[data-addcard]', root).forEach((b) => b.addEventListener('click', () => {
+      const id = route.split('/')[2];
+      Store.addToUserDeck(id, b.getAttribute('data-addcard'), 1);
+      toast('Added ' + b.getAttribute('data-addcard') + '.');
+      App.refresh();
+    }));
+    const upg = $('[data-upgrade]', root);
+    if (upg) upg.addEventListener('click', () => {
+      const key = route.startsWith('#/mydeck/') ? route.split('/')[2] : 'session:' + route.split('/')[2];
+      const r = reports[key];
+      if (!r || !r.brainSuggestions) return;
+      let base;
+      let name;
+      let commander = '';
+      if (key.startsWith('session:')) {
+        const s = Store.state.sessions.find((x) => x.id === key.slice(8));
+        base = s.cards.map((c) => ({ ...c }));
+        name = s.name;
+      } else {
+        const d = Store.userDeck(key);
+        base = d.cards.map((c) => ({ ...c }));
+        name = d.name;
+        commander = d.commander;
+      }
+      const adds = r.brainSuggestions.items.filter((i) => !base.some((c) => Store.norm(c.n) === Store.norm(i.n)));
+      const cutSet = new Set(r.cuts.map((c) => Store.norm(c.n)));
+      let removed = 0;
+      const kept = base.filter((c) => {
+        if (removed < adds.length && cutSet.has(Store.norm(c.n)) && Store.norm(c.n) !== Store.norm(commander)) { removed++; return false; }
+        return true;
+      });
+      for (const a of adds) kept.push({ n: a.n, q: 1, sid: a.sid });
+      const nd = Store.createUserDeck(name + ' (upgraded)', kept, commander);
+      toast('Upgraded build created. Cards you still need are flagged Bought-able in the list.');
+      location.hash = '#/mydeck/' + nd.id;
+    });
+
+    // bought flow
+    $$('[data-bought]', root).forEach((b) => b.addEventListener('click', () => {
+      const n = b.getAttribute('data-bought');
+      const own = Store.byName[Store.norm(n)];
+      const have = own ? own.qty : 0;
+      const dv2 = route.startsWith('#/mydeck/') ? Store.deckView(route.split('/')[2]) : null;
+      const inDeck = dv2 ? (dv2.cards.find((c) => Store.norm(c.n) === Store.norm(n)) || { q: 1 }).q : 1;
+      const need = Math.max(1, inDeck - have);
+      sheet('Did you buy ' + n + '?', [{
+        label: 'Yes, add ' + need + ' to my collection',
+        cb: () => { Store.addPurchased([{ n, q: need }]); toast(n + ' added to your collection.'); App.refresh(); },
+      }]);
+    }));
+    const buyAll = $('#buy-all', root);
+    if (buyAll) buyAll.addEventListener('click', () => {
+      const dv2 = Store.deckView(route.split('/')[2]);
+      const missing = Store.missingFromCollection(dv2.cards);
+      const total = missing.reduce((s, m) => s + m.unit * m.q, 0);
+      sheet('Add all ' + missing.reduce((s, m) => s + m.q, 0) + ' missing cards (' + money(total) + ') to your collection?', [{
+        label: 'Yes, I bought them all',
+        cb: () => { Store.addPurchased(missing); toast('Collection updated. They now count as owned everywhere.'); App.refresh(); },
+      }]);
+    });
+    const dlm = $('#dl-missing', root);
+    if (dlm) dlm.addEventListener('click', () => {
+      const dv2 = Store.deckView(route.split('/')[2]);
+      const missing = Store.missingFromCollection(dv2.cards);
+      dl('buylist.txt', missing.map((m) => m.q + ' ' + m.n).join('\n'));
     });
 
     if (route.startsWith('#/mydeck/')) {
@@ -760,20 +949,14 @@ const UI = (() => {
       }
     }
 
-    // builder page
+    // builder page: commander-first
     if (route === '#/build') {
-      const themeInput = $('#bld-theme', root);
-      if (themeInput) themeInput.addEventListener('change', () => {
-        const k = Builder.matchTheme(themeInput.value);
-        if (k) App.go('#/build', { ...params, arch: k, cmd: '0' });
-        else toast('No matching theme. Try: tokens, sacrifice, dragons, spellslinger, lifegain...');
-      });
+      const cs = $('#bld-cmdsearch', root);
+      if (cs) cs.addEventListener('change', () => App.go('#/build', { ...params, cmd: cs.value.trim(), arch: '' }));
       const archSel = $('#bld-arch', root);
-      if (archSel) archSel.addEventListener('change', () => App.go('#/build', { ...params, arch: archSel.value, cmd: '0' }));
-      const cmdSel = $('#bld-cmd', root);
-      if (cmdSel) cmdSel.addEventListener('change', () => App.go('#/build', { ...params, cmd: cmdSel.value }));
+      if (archSel && !params.cmd) archSel.addEventListener('change', () => App.go('#/build', { ...params, arch: archSel.value }));
       const brSel = $('#bld-bracket', root);
-      if (brSel) brSel.addEventListener('change', () => App.go('#/build', { ...params, bracket: brSel.value }));
+      if (brSel) brSel.addEventListener('change', () => { params.bracket = brSel.value; });
       const goB = $('#bld-go', root);
       if (goB) goB.addEventListener('click', async () => {
         const status = $('#bld-status', root);
@@ -782,12 +965,28 @@ const UI = (() => {
         let ownedFacts = null;
         goB.disabled = true;
         try {
+          const chosen = cs && cs.value.trim() ? Builder.findCommander(cs.value) : null;
+          if (cs && cs.value.trim() && !chosen) {
+            status.textContent = 'Pick a commander from the suggestions list.';
+            goB.disabled = false;
+            return;
+          }
+          let cmdOverride = null;
+          let archKey;
+          if (chosen) {
+            const fits = Builder.fittingArchetypes(chosen);
+            archKey = archSel.value === 'auto' ? (fits[0] ? fits[0].key : null) : archSel.value;
+            cmdOverride = await Builder.loadCommanderTemplate(chosen.slug, (msg) => { status.textContent = msg; });
+          } else {
+            archKey = archSel.value && archSel.value !== 'auto' ? archSel.value : Builder.templates().archetypes[0].key;
+          }
           if (substitute && useCollection) {
             status.textContent = 'Scanning your collection for role matches...';
             ownedFacts = await Builder.scanCollection((d, t) => { status.textContent = 'Scanning ' + d + ' of ' + t + ' owned cards...'; });
           }
+          const cmdSel = $('#bld-cmd', root);
           const res = Builder.build({
-            archKey: archSel.value, cmdIdx: parseInt(cmdSel.value, 10),
+            archKey, cmdIdx: cmdSel ? parseInt(cmdSel.value, 10) : 0, cmdOverride,
             bracket: parseInt(brSel.value, 10), useCollection, substitute, ownedFacts,
           });
           status.textContent = '';

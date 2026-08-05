@@ -23,7 +23,7 @@ for (const [k, a] of Object.entries(B.archetypes)) {
 console.log(under100 ? 'WARN: ' + under100 + ' archetypes under 100 decks' : 'All archetypes at 100+ decks');
 
 // builder with brain recommendations against the seeded collection
-Store.importSeed();
+Store.importBackup(JSON.parse(require('fs').readFileSync('C:/Users/keane/Downloads/aether-vault-keanen.json','utf8')));
 const db = require('C:/Users/keane/deck-overhaul/data/db.json');
 const ownedFacts = {};
 for (const [k, v] of Object.entries(Store.byName)) {
