@@ -197,10 +197,14 @@ const UI = (() => {
       ? mv.map((m) => '<div class="mover" data-hover-sid="' + m.sid + '"><span>' + esc(m.n) + '</span>' +
         '<span class="' + (m.delta > 0 ? 'up' : 'down') + '">' + (m.delta > 0 ? '+' : '') + m.delta.toFixed(2) + '</span></div>').join('')
       : '<div class="dim">Movement appears after two price refreshes on different days.</div>';
-    const holdings = Store.topHoldings(8).map((h) =>
-      '<div class="hold-row" data-hover-sid="' + (h.sid || '') + '">' + thumb(h.sid) +
-      '<span class="hold-n">' + esc(h.n) + (h.f ? ' <span class="badge">' + h.f + '</span>' : '') + '</span>' +
-      '<span class="dim">x' + h.q + '</span><span class="hold-v">' + money(h.total) + '<br>' + tickerHtml(h.n, h.sid, h.f) + '</span></div>').join('');
+    const holdings = Store.topHoldings(8).map((h) => {
+      const tick = tickerHtml(h.n, h.sid, h.f);
+      return '<div class="hold-row" data-hover-sid="' + (h.sid || '') + '">' + thumb(h.sid) +
+        '<span class="hold-n">' + esc(h.n) +
+        (h.f ? ' <span class="badge">' + h.f + '</span>' : '') +
+        ' <span class="dim">x' + h.q + '</span></span>' +
+        '<span class="hold-v">' + money(h.total) + (tick ? '<br>' + tick : '') + '</span></div>';
+    }).join('');
     const dist = Store.distribution();
     const deckVals = deckRefs.map((r) => [r.name.split(',')[0], Math.round(Store.userDeckTotal(r.key))])
       .sort((a, b) => b[1] - a[1]);

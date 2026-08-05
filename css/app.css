@@ -598,3 +598,15 @@ footer { border-top: 1px solid var(--line); margin-top: 60px; padding: 22px 20px
   22% { opacity: 0.85; transform: scale(1.25); box-shadow: 0 0 0 4px rgba(194, 53, 75, 0); }
 }
 @media (prefers-reduced-motion: reduce) { #backup-dot { animation: none; } }
+
+/* holdings: clean right block, name line carries qty */
+.hold-row { align-items: center; }
+.hold-n .dim { margin-left: 4px; }
+.hold-v { text-align: right; min-width: 88px; line-height: 1.3; }
+/* mobile bars: label+value one line, bar below, no overlap */
+@media (max-width: 640px) {
+  .hbar-row { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 2px 8px; padding-bottom: 7px; }
+  .hbar-l { grid-column: 1; font-size: 12px; color: var(--ink); font-weight: 550; }
+  .hbar-v { grid-column: 2; grid-row: 1; margin: 0; padding: 0; background: none; position: static; font-size: 12px; }
+  .hbar-row .hbar-track { grid-column: 1 / -1; grid-row: 2; }
+}

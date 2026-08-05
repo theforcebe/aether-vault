@@ -327,5 +327,5 @@ const Builder = (() => {
     return cmp.rows.filter((r) => r.need > 0).map((r) => r.need + ' ' + r.n).join('\n');
   }
 
-  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor };
+  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor, allCommanders, findCommander, fittingArchetypes };
 })();
