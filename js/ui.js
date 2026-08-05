@@ -219,7 +219,7 @@ const UI = (() => {
       '<div class="stat-tile"><div class="stat-label">Decks</div><div class="stat-value">' + deckRefs.length + '</div><div class="dim">' + Store.state.sessions.length + ' imported lists</div></div>' +
       '<div class="stat-tile"><div class="stat-label">Snapshots</div><div class="stat-value">' + snaps.length + '</div><div class="dim">' + (snaps.length ? 'since ' + snaps[0].date : 'refresh prices to start') + '</div></div>' +
       '</section>' +
-      '<section class="panel"><div class="panel-h">Value over time<span class="dim" style="margin-left:auto">One snapshot per day, on price refresh</span></div>' +
+      '<section class="panel"><div class="panel-h">Value over time</div>' +
       chips + lineChart(series) + '</section>' +
       '<div class="two-col">' +
       '<section class="panel"><div class="panel-h">Top holdings</div>' + (holdings || '<div class="dim">Upload a collection to see holdings.</div>') + '</section>' +
@@ -336,7 +336,7 @@ const UI = (() => {
       (Store.seedAvailable() && !Store.state.seeded ? '<button class="btn" id="seed-import">Load built-in vault</button>' : '') +
       '</div></div>' +
       (refs.length ? '<div class="deck-grid">' + tiles + '</div>'
-        : '<p class="dim">No decks yet. New deck starts blank; Import brings in a full list; the analyzer grades whatever you build.</p>') +
+        : '<p class="dim">No decks yet.</p>') +
       (sess ? '<div class="panel-h sub">Imported lists</div>' + sess : '');
   }
 
@@ -414,14 +414,19 @@ const UI = (() => {
       chipList('Tutors', r.tutors.slice(0, 8)) + chipList('Extra turns', r.turns) + chipList('Mass land denial', r.mld) +
       (r.combos.length ? '<div class="sig-row"><span class="sig-l">Combos</span>' + r.combos.map((p) => '<span class="badge ' + (p.mvSum <= 6 ? 'warn' : '') + '">' + esc(p.a + ' + ' + p.b) + '</span>').join('') + '</div>' : '') +
       (r.archetypes.length ? '<div class="sig-row"><span class="sig-l">Archetypes</span>' + r.archetypes.map((a) => '<span class="badge gc">' + esc(a.name) + ' (' + a.hits + ')</span>').join('') + '</div>' : '') +
+      (r.brainMatches && r.brainMatches.length ? '<div class="sig-row"><span class="sig-l">Decks like yours</span>' + r.brainMatches.map((m) => '<span class="badge">' + esc(m.name) + ' ' + Math.round(m.score * 100) + '% (' + m.decks + ' decks)</span>').join('') + '</div>' : '') +
       '</div></div>' +
+      (r.brainSuggestions ? '<div class="panel-h sub">Most-played in ' + esc(r.brainSuggestions.arch) + ' decks (' + r.brainSuggestions.decks + ' sampled) that this list is missing</div>' +
+        '<div class="sig-row">' + r.brainSuggestions.items.map((i) =>
+          '<span class="badge ' + (i.owned ? 'own' : 'buy') + '" data-hover-sid="' + (i.sid || '') + '">' + esc(i.n) + ' ' + Math.round(i.f * 100) + '%' +
+          (i.owned ? ' owned' : (i.usd != null ? ' ' + money(i.usd) : '')) + '</span>').join('') + '</div>' : '') +
       (r.suggestions.length ? '<div class="panel-h sub">Suggestions</div>' + r.suggestions.map((s) =>
         '<div class="sugg"><div>' + esc(s.text) + '</div>' +
         (s.picks.length ? '<div class="sig-row">' + s.picks.map((p) => '<span class="badge">' + esc(p) + '</span>').join('') + '</div>' : '') + '</div>').join('') : '') +
       (r.cuts.length ? '<div class="panel-h sub">Cut candidates</div><div class="dim" style="margin-bottom:6px">Expensive cards with no detected role in this deck’s plan:</div>' +
         '<div class="sig-row">' + r.cuts.map((c) => '<span class="badge">' + esc(c.n) + ' (mv ' + c.mv + ')</span>').join('') + '</div>' : '') +
       (r.unresolved ? '<div class="dim" style="margin-top:8px">' + r.unresolved + ' cards could not be identified and were skipped.</div>' : '') +
-      '<div class="dim" style="margin-top:10px">Rubric: October 2025 bracket system, February 2026 Game Changers list. Heuristics, not gospel: talk to your pod.</div></section>';
+      '</section>';
   }
 
   function deckHeadHtml(dv, extra, deckId) {
@@ -466,26 +471,24 @@ const UI = (() => {
 
   function viewMoves() {
     const ms = Store.state.moves;
-    if (!ms.length) return '<div class="page-h"><h1>Moves</h1></div><p class="dim">Nothing logged. When you add a card to a deck from the collection or another deck, it lands here as a physical sorting checklist.</p>';
+    if (!ms.length) return '<div class="page-h"><h1>Moves</h1></div><p class="dim">Nothing logged yet. Card moves collect here as a physical sorting checklist.</p>';
     let rows = '';
     for (const m of ms) {
       rows += '<div class="move-row" data-hover-sid="' + (m.sid || '') + '"><span>' + esc(m.n) + '</span>' +
         '<span class="dim">' + esc(Store.deckNameFor(m.from)) + ' to ' + esc(Store.deckNameFor(m.to)) + '</span>' +
         '<button class="btn small" data-unmove="' + m.id + '">done / undo</button></div>';
     }
-    return '<div class="page-h"><h1>Moves</h1><div class="page-actions"><button class="btn" id="clear-moves">Clear all</button></div></div>' +
-      '<p class="dim">Your physical sorting checklist, stored in this browser.</p>' + rows;
+    return '<div class="page-h"><h1>Moves</h1><div class="page-actions"><button class="btn" id="clear-moves">Clear all</button></div></div>' + rows;
   }
 
   function viewImport() {
     return '<div class="page-h"><h1>Import a deck</h1></div>' +
-      '<p class="dim">Paste a list, one card per line, like: 1 Sol Ring. Set codes in parentheses are ignored. Everything resolves against Scryfall and stays in this browser.</p>' +
+      '<p class="dim">One card per line, like: 1 Sol Ring.</p>' +
       '<textarea id="imp-text" rows="12" placeholder="1 Atraxa, Grand Unifier&#10;1 Sol Ring&#10;..."></textarea>' +
       '<div class="row"><input id="imp-name" placeholder="Deck name">' +
       '<button class="btn primary" id="imp-go">Import as editable deck</button>' +
       '<button class="btn" id="imp-go-ro">Import read-only</button>' +
       '<button class="btn" id="imp-compare"' + (Store.hasCollection() ? '' : ' disabled title="Upload a collection first"') + '>Compare vs my collection</button></div>' +
-      '<p class="dim">Compare shows what you own and what you would need to buy, with a downloadable buy list. It never adds anything to your collection.</p>' +
       '<div id="imp-status" class="dim"></div><div id="compare-slot"></div>';
   }
 
@@ -517,7 +520,7 @@ const UI = (() => {
     const cmd = a.commanders[cmdIdx];
     const bracket = parseInt(params.bracket || '3', 10);
     return '<div class="page-h"><h1>Deck builder</h1></div>' +
-      '<p class="dim">Builds start from the most popular list for a theme (EDHREC average decks, verified against Scryfall), get shaped to your bracket, then checked against your collection. Basic lands count as owned.</p>' +
+      '<p class="dim">Pick a theme and a bracket. The build checks itself against your collection; basic lands count as owned.</p>' +
       '<section class="panel"><div class="build-controls">' +
       '<input id="bld-theme" placeholder="Describe a theme: sacrifice, dragons, lifegain..." value="">' +
       '<select id="bld-arch">' + t.archetypes.map((x) => '<option value="' + x.key + '" ' + (x.key === a.key ? 'selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select>' +
@@ -556,6 +559,12 @@ const UI = (() => {
       '<button class="btn" id="bld-dl-deck">Decklist .txt</button>' +
       '<button class="btn" id="bld-dl-buy">Buy list .txt</button></div>' +
       (res.notes.length ? '<div class="panel-h sub">Bracket adjustments</div><ul class="why">' + res.notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') +
+      (res.recommendations && res.recommendations.ownedPopular.length
+        ? '<div class="panel-h sub">Already in your collection and popular in real ' + esc(res.archetype) + ' decks</div><div class="sig-row">' +
+          res.recommendations.ownedPopular.map((i) => '<span class="badge own" data-hover-sid="' + (i.sid || '') + '">' + esc(i.n) + ' ' + Math.round(i.f * 100) + '%</span>').join('') + '</div>' : '') +
+      (res.recommendations && res.recommendations.upgrades.length
+        ? '<div class="panel-h sub">Most-played upgrades across ' + res.recommendations.decks + ' real decks</div><div class="sig-row">' +
+          res.recommendations.upgrades.map((i) => '<span class="badge buy" data-hover-sid="' + (i.sid || '') + '">' + esc(i.n) + ' ' + Math.round(i.f * 100) + '%' + (i.usd != null ? ' ' + money(i.usd) : '') + '</span>').join('') + '</div>' : '') +
       '</section><div class="deck-cols">' + cols + '</div>';
   }
 
@@ -571,7 +580,9 @@ const UI = (() => {
       '<section class="panel"><div class="panel-h">Deckbuilding baseline</div><div class="prose">' +
       '<p>A functional 100 usually carries <strong>35-38 lands</strong>, <strong>10-12 ramp</strong>, <strong>8-10 card draw</strong>, <strong>8-10 removal</strong> including <strong>2-4 board wipes</strong>, leaving roughly 30-35 slots for the deck’s actual plan. Aggressive low-curve decks trim lands; landfall and graveyard decks bend every number. The analyzer grades against this baseline and says when it thinks the bend is intentional.</p></div></section>' +
       '<section class="panel"><div class="panel-h">Archetype starting points</div>' + arch + '</section>' +
-      '<section class="panel"><div class="panel-h">Sources</div><p class="dim">WotC / Commander Format Panel bracket announcements (October 2025 revision), the February 2026 Game Changers update, EDHREC bracket guide and archetype data, Commander Spellbook combo database, and standard community deckbuilding templates.</p></section>';
+      '<section class="panel"><div class="panel-h">Sources</div><p class="dim">WotC / Commander Format Panel bracket announcements (October 2025 revision), the February 2026 Game Changers update, EDHREC bracket guide, average decklists and deck database' +
+      ((window.VAULT_BRAIN && window.VAULT_BRAIN.decksTotal) ? ' (' + window.VAULT_BRAIN.decksTotal.toLocaleString() + ' real decklists sampled ' + window.VAULT_BRAIN.built + ' power the recommendation engine)' : '') +
+      ', Commander Spellbook combo database, and standard community deckbuilding templates.</p></section>';
   }
 
   function viewData() {

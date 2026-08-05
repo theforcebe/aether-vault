@@ -38,6 +38,10 @@ const Builder = (() => {
   }
 
   function archetype(key) { return T().archetypes.find((a) => a.key === key) || null; }
+  function brainFor(key) {
+    const b = window.VAULT_BRAIN;
+    return b && b.archetypes && b.archetypes[key] ? b.archetypes[key] : null;
+  }
 
   const BASIC_FOR = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
 
@@ -141,6 +145,10 @@ const Builder = (() => {
       if (own && own.qty > 0) { c.status = 'owned'; c.inDeckAlready = usedOwned.has(lower(c.n)); continue; }
       c.status = 'buy';
       if (opts.substitute && ownedFacts && c.role !== 'none' && c.role !== 'land') {
+        // Prefer owned cards that real decks of this archetype actually play.
+        const brain = brainFor(opts.archKey);
+        const brainF = {};
+        if (brain) for (const bc of brain.cards) brainF[Store.norm(bc.n)] = bc.f;
         let best = null;
         for (const [k, agg] of Object.entries(Store.byName)) {
           if (used.has(k) || agg.qty <= 0) continue;
@@ -149,16 +157,38 @@ const Builder = (() => {
           if ([...(f.ci || '')].some((x) => !ci.includes(x))) continue;
           if (ownedRole(f) !== c.role) continue;
           const d = Math.abs((f.mv || 0) - c.mv);
-          if (!best || d < best.d) best = { name: agg.name, sid: agg.sid || f.sid, d, mv: f.mv };
+          const pop = brainF[k] || 0;
+          if (d > 2 && pop < 0.15) continue;
+          const score = pop * 10 - d * 1.2;
+          if (!best || score > best.score) best = { name: agg.name, sid: agg.sid || f.sid, score, pop };
         }
-        if (best && best.d <= 2) {
+        if (best) {
           c.status = 'sub';
           c.subFor = c.n;
           c.n = best.name;
           c.sid = best.sid;
           c.usd = 0;
+          c.pop = best.pop;
           used.add(Store.norm(best.name));
         }
+      }
+    }
+
+    // brain recommendations: what real decks of this theme play
+    const brain = brainFor(opts.archKey);
+    const recommendations = { ownedPopular: [], upgrades: [], decks: brain ? brain.decks : 0 };
+    if (brain) {
+      for (const bc of brain.cards) {
+        const k = Store.norm(bc.n);
+        if (used.has(k)) continue;
+        if ([...(bc.ci || '')].some((x) => !ci.includes(x))) continue;
+        const own = opts.useCollection ? Store.byName[k] : null;
+        if (own && own.qty > 0 && bc.f >= 0.12 && recommendations.ownedPopular.length < 10) {
+          recommendations.ownedPopular.push({ n: bc.n, f: bc.f, sid: own.sid || bc.sid });
+        } else if ((!own || own.qty <= 0) && bc.f >= 0.2 && recommendations.upgrades.length < 10) {
+          recommendations.upgrades.push({ n: bc.n, f: bc.f, sid: bc.sid, usd: bc.usd });
+        }
+        if (recommendations.ownedPopular.length >= 10 && recommendations.upgrades.length >= 10) break;
       }
     }
 
@@ -174,7 +204,7 @@ const Builder = (() => {
       commanderOwned: !!(opts.useCollection && Store.byName[Store.norm(cmd.name)]),
       gcs: cards.filter((c) => c.gc).map((c) => c.n),
     };
-    return { archetype: a.name, commander: cmd, cards, notes, stats };
+    return { archetype: a.name, commander: cmd, cards, notes, stats, recommendations };
   }
 
   function decklistText(result) {

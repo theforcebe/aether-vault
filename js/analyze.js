@@ -160,6 +160,45 @@ const Analyze = (() => {
       !arch.slice(0, 2).some((a) => (Rules.ARCHETYPES.find((x) => x.key === a.key) || { test: () => false }).test(c))
     ).sort((a, b) => b.mv - a.mv).slice(0, 5);
 
+    // brain matching: which real-deck population does this list most resemble,
+    // and what do those decks play that this list is missing
+    let brainMatches = [];
+    let brainSuggestions = null;
+    const BR = window.VAULT_BRAIN;
+    if (BR && BR.archetypes) {
+      const deckNames = names;
+      const tName = (key) => {
+        const t = window.VAULT_TEMPLATES;
+        const a = t && t.archetypes ? t.archetypes.find((x) => x.key === key) : null;
+        return a ? a.name : key.charAt(0).toUpperCase() + key.slice(1);
+      };
+      for (const [key, arch] of Object.entries(BR.archetypes)) {
+        const topCards = arch.cards.slice(0, 60);
+        let hit = 0, denom = 0;
+        for (const bc of topCards) {
+          denom += bc.f;
+          if (deckNames.has(lower(bc.n))) hit += bc.f;
+        }
+        if (denom > 0) brainMatches.push({ key, name: tName(key), score: hit / denom, decks: arch.decks });
+      }
+      brainMatches.sort((a, b) => b.score - a.score);
+      brainMatches = brainMatches.filter((m) => m.score >= 0.15).slice(0, 3);
+      const top = brainMatches[0];
+      if (top) {
+        const arch = BR.archetypes[top.key];
+        const items = [];
+        for (const bc of arch.cards) {
+          if (bc.f < 0.28) break;
+          if (deckNames.has(lower(bc.n))) continue;
+          if (ci && [...(bc.ci || '')].some((x) => !ci.includes(x))) continue;
+          const own = Store.byName[Store.norm(bc.n)];
+          items.push({ n: bc.n, f: bc.f, usd: bc.usd, sid: bc.sid, owned: !!(own && own.qty > 0) });
+          if (items.length >= 10) break;
+        }
+        if (items.length) brainSuggestions = { arch: top.name, decks: arch.decks, items };
+      }
+    }
+
     return {
       totalCards, unresolved, comp, avgMv: avgMv.toFixed(2),
       gcs: gcs.map((c) => c.n), mld: mld.map((c) => c.n), turns: turns.map((c) => c.n),
@@ -167,6 +206,7 @@ const Analyze = (() => {
       combos, fastCombos: fastCombos.length,
       bracket, feel, why, power: Math.round(power * 10) / 10,
       archetypes: arch.slice(0, 4), suggestions, cuts: cuts.map((c) => ({ n: c.n, mv: c.mv })),
+      brainMatches, brainSuggestions,
     };
   }
 
