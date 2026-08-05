@@ -7,7 +7,7 @@ const App = (() => {
   let dataPromise = null;
   function ensureData() {
     if (!dataPromise) {
-      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors', 'combos', 'commanders-cards'].map((f) => new Promise((res) => {
+      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors', 'combos', 'commanders-cards', 'sets'].map((f) => new Promise((res) => {
         const s = document.createElement('script');
         s.src = 'data/' + f + '.js?v=' + (window.AV_BUILD || '0');
         s.onload = res;
@@ -51,6 +51,7 @@ const App = (() => {
     else if (path.startsWith('#/session/')) html = UI.viewSession(path.split('/')[2]);
     else if (path === '#/guide') html = UI.viewGuide();
     else if (path === '#/coach') html = UI.viewCoach();
+    else if (path === '#/collector') html = UI.viewCollector();
     else if (path.startsWith('#/pilot/')) html = UI.viewPilot();
     else if (path === '#/build') html = UI.viewBuild(params);
     else if (path === '#/data') html = UI.viewData();
@@ -86,7 +87,7 @@ const App = (() => {
     });
     const moreBtn = document.getElementById('tab-more');
     const morePop = document.getElementById('tab-more-pop');
-    if (moreBtn) moreBtn.classList.toggle('active', ['#/import', '#/guide', '#/moves', '#/data'].includes(path));
+    if (moreBtn) moreBtn.classList.toggle('active', ['#/collector', '#/import', '#/guide', '#/moves', '#/data', '#/coach'].includes(path));
     if (morePop) { morePop.hidden = true; if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false'); }
     const tmc = document.getElementById('tab-moves-count');
     if (tmc) tmc.textContent = n ? String(n) : '';

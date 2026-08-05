@@ -702,3 +702,18 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
   border-radius: 10px; font-family: var(--font); font-size: 13.5px; line-height: 1.65;
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* ---------- v10: collector ---------- */
+.stat-tick { font-size: 12px; font-weight: 550; vertical-align: 3px; margin-left: 4px; }
+.collector-hero { text-align: center; padding: 28px 20px; }
+.hero-title { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
+.set-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.set-row:last-child { border-bottom: none; }
+.set-head { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.set-n { flex: 1; min-width: 0; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-count { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 12.5px; white-space: nowrap; }
+.set-track { height: 6px; background: var(--line); border-radius: 999px; margin-top: 7px; overflow: hidden; }
+.set-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.set-fill.full { background: var(--gold); }
+.badge.gold { background: #faf3dc; color: var(--gold); border-color: #eadfb8; }
+.set-detail { max-height: 300px; overflow-y: auto; }

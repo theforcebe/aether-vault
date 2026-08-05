@@ -26,13 +26,15 @@ const UI = (() => {
 
   // ManaBox-style movement since the app first saw a price for this printing:
   // +24.36 (+33.2%) in green, or red when down.
-  function tickerHtml(n, sid, f) {
-    const t = Store.ticker(n, sid, f || '');
+  function tickFmt(t) {
     if (!t) return '';
     const up = t.d >= 0;
     const sign = up ? '+' : '-';
     return '<span class="tick ' + (up ? 'up' : 'down') + '">' + sign + Math.abs(t.d).toFixed(2) +
       ' (' + sign + Math.abs(t.pct).toFixed(1) + '%)</span>';
+  }
+  function tickerHtml(n, sid, f) {
+    return tickFmt(Store.ticker(n, sid, f || ''));
   }
 
   function toast(msg) {
@@ -220,7 +222,8 @@ const UI = (() => {
 
     return colBar +
       '<section class="stat-row">' +
-      '<div class="stat-tile"><div class="stat-label">Collection value</div><div class="stat-value">' + money(total) + '</div>' +
+      '<div class="stat-tile"><div class="stat-label">Collection value</div><div class="stat-value">' + money(total) +
+      (Store.collectionTicker() ? ' <span class="stat-tick">' + tickFmt(Store.collectionTicker()) + '</span>' : '') + '</div>' +
       '<div class="dim">' + (age == null ? 'Baseline estimate. Refresh for live prices.' : 'Prices ' + age.toFixed(1) + 'h old.') + '</div></div>' +
       '<div class="stat-tile"><div class="stat-label">Cards</div><div class="stat-value">' + nCards.toLocaleString() + '</div><div class="dim">' + nUnique.toLocaleString() + ' unique</div></div>' +
       '<div class="stat-tile"><div class="stat-label">Decks</div><div class="stat-value">' + deckRefs.length + '</div><div class="dim">' + Store.state.sessions.length + ' imported lists</div></div>' +
@@ -787,6 +790,90 @@ const UI = (() => {
       '<button class="btn danger" id="data-clear">Clear all local data</button></div></section>';
   }
 
+  // ---------- collector ----------
+  function overallTitle(prog) {
+    const mastered = prog.sets.filter((s) => s.pct >= 1).length;
+    const near = prog.sets.filter((s) => s.pct >= 0.9).length;
+    const half = prog.sets.filter((s) => s.pct >= 0.5).length;
+    if (mastered >= 3) return 'Master of ' + mastered + ' Sets';
+    if (mastered >= 1) return 'Set Master';
+    if (near >= 1) return 'Completionist';
+    if (half >= 3) return 'Grand Curator';
+    if (half >= 1) return 'Curator';
+    if (prog.sets.length >= 10) return 'Wide-Ranging Collector';
+    if (prog.sets.length >= 3) return 'Collector';
+    return 'Apprentice Collector';
+  }
+
+  function viewCollector() {
+    if (!window.VAULT_SETS) {
+      App.ensureData().then(() => App.refresh());
+      return '<div class="page-h"><h1>Collector</h1></div><p class="dim">Loading the set index...</p>';
+    }
+    if (!Store.hasCollection()) {
+      return '<div class="page-h"><h1>Collector</h1></div>' +
+        '<p class="dim">Upload a ManaBox export and this page tracks your progress through every Magic set: what you hold, what is missing, and the titles you have earned.</p>';
+    }
+    const prog = Store.setProgress();
+    if (!prog || !prog.sets.length) {
+      return '<div class="page-h"><h1>Collector</h1></div>' +
+        '<p class="dim">No set codes found in this collection. Re-upload a ManaBox CSV export (it includes a Set code column) to unlock set tracking.</p>';
+    }
+    const cardsInSets = prog.sets.reduce((s, x) => s + x.owned, 0);
+    const best = prog.sets[0];
+    const row = (s) => {
+      const tier = Store.setTier(s.owned, s.total);
+      return '<div class="set-row" data-set="' + esc(s.c) + '">' +
+        '<div class="set-head"><span class="set-n">' + esc(s.n) + ' <span class="dim">' + (s.y || '') + '</span></span>' +
+        '<span class="badge ' + tier.cls + '">' + tier.name + '</span>' +
+        '<span class="set-count">' + s.owned + ' / ' + s.total + '</span></div>' +
+        '<div class="set-track"><div class="set-fill' + (s.pct >= 1 ? ' full' : '') + '" style="width:' + Math.max(2, Math.round(s.pct * 100)) + '%"></div></div>' +
+        '<div class="set-detail" id="set-detail-' + esc(s.c) + '"></div></div>';
+    };
+    return '<div class="page-h"><h1>Collector</h1></div>' +
+      '<section class="panel collector-hero"><div class="hero-title">' + overallTitle(prog) + '</div>' +
+      '<div class="dim">Titles grow as sets fill: Scout at 10%, Collector at 25%, Curator at 50%, Archivist at 75%, Completionist at 90%, Set Master at 100%.</div></section>' +
+      '<section class="stat-row">' +
+      '<div class="stat-tile"><div class="stat-label">Sets started</div><div class="stat-value">' + prog.sets.length + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Unique cards in sets</div><div class="stat-value">' + cardsInSets.toLocaleString() + '</div></div>' +
+      '<div class="stat-tile"><div class="stat-label">Closest to done</div><div class="stat-value" style="font-size:15px">' + esc(best.n) + '</div><div class="dim">' + Math.round(best.pct * 100) + '% complete</div></div>' +
+      '</section>' +
+      '<section class="panel"><div class="panel-h">Your sets</div>' +
+      '<p class="dim">Progress counts unique cards, not duplicate printings. Tap a set to see exactly what is missing and what finishing it costs.</p>' +
+      prog.sets.map(row).join('') + '</section>' +
+      (prog.unmatchedRows ? '<p class="dim">' + prog.unmatchedRows + ' rows have no set code (imported by name rather than ManaBox) and are not counted here.</p>' : '');
+  }
+
+  async function fetchSetMissing(code) {
+    const cacheKey = 'av_set_' + code;
+    try {
+      const hit = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+      if (hit && Date.now() - hit.t < 7 * 864e5) return hit.cards;
+    } catch (e) { /* refetch */ }
+    const cards = [];
+    let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent('e:' + code.toLowerCase() + ' game:paper') + '&unique=cards&order=set';
+    let pages = 0;
+    while (url && pages < 6) {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error('Scryfall said ' + r.status);
+      const d = await r.json();
+      for (const c of d.data) cards.push({ n: c.name, cn: c.collector_number, usd: c.prices && c.prices.usd ? parseFloat(c.prices.usd) : null, sid: c.id });
+      url = d.has_more ? d.next_page : null;
+      pages++;
+      if (url) await new Promise((res) => setTimeout(res, 120));
+    }
+    try {
+      // keep at most 10 cached sets; drop the oldest
+      const keys = Object.keys(localStorage).filter((k) => k.startsWith('av_set_'));
+      if (keys.length >= 10) {
+        keys.map((k) => { try { return { k, t: JSON.parse(localStorage.getItem(k)).t || 0 }; } catch (e) { return { k, t: 0 }; } })
+          .sort((a, b) => a.t - b.t).slice(0, keys.length - 9).forEach((x) => localStorage.removeItem(x.k));
+      }
+      localStorage.setItem(cacheKey, JSON.stringify({ t: Date.now(), cards }));
+    } catch (e) { /* storage full: fine, it refetches */ }
+    return cards;
+  }
+
   // ---------- bracket coach ----------
   function viewCoach() {
     const opts = Store.state.userdecks.map((d) => '<option value="' + d.id + '">' + esc(d.name) + '</option>').join('') +
@@ -944,6 +1031,35 @@ const UI = (() => {
         }
       })();
     }
+    // collector: tap a set to see what is missing
+    $$('.set-row', root).forEach((rowEl) => rowEl.querySelector('.set-head').addEventListener('click', async () => {
+      const code = rowEl.getAttribute('data-set');
+      const slot = $('#set-detail-' + code, root);
+      if (!slot) return;
+      if (slot.innerHTML) { slot.innerHTML = ''; return; }
+      slot.innerHTML = '<div class="dim" style="padding:8px 0">Checking the set list...</div>';
+      try {
+        const cards = await fetchSetMissing(code);
+        const ownedNames = new Set(Store.rows().filter((r) => r.s === code).map((r) => Store.norm(r.n)));
+        const missing = cards.filter((c) => !ownedNames.has(Store.norm(c.n)));
+        const cost = missing.reduce((s, c) => s + (c.usd || 0), 0);
+        if (!missing.length) {
+          slot.innerHTML = '<div style="padding:8px 0"><span class="badge gold">Set complete</span></div>';
+        } else {
+          slot.innerHTML =
+            '<div class="dim" style="margin:6px 0">' + missing.length + ' missing, about ' + money(cost) + ' to finish. ' +
+            '<button class="btn small" data-setwant="' + esc(code) + '">Want list .txt</button></div>' +
+            missing.sort((a, b) => (b.usd || 0) - (a.usd || 0)).map((c) =>
+              '<div class="cmp-row" data-hover-sid="' + (c.sid || '') + '"><span class="cmp-n">' + esc(c.n) + '</span>' +
+              '<span class="dim">#' + esc(c.cn) + '</span><span class="ra list-p">' + (c.usd != null ? money(c.usd) : '') + '</span></div>').join('');
+          const wb = slot.querySelector('[data-setwant]');
+          if (wb) wb.addEventListener('click', () => dl(code.toLowerCase() + '-wantlist.txt', missing.map((c) => '1 ' + c.n).join('\n')));
+        }
+      } catch (e) {
+        slot.innerHTML = '<div class="dim">Could not reach Scryfall (' + esc(e.message || 'network') + '). Try again.</div>';
+      }
+    }));
+
     // bracket coach
     const cg = $('#coach-go', root);
     if (cg) cg.addEventListener('click', async () => {
@@ -1448,7 +1564,7 @@ const UI = (() => {
     if (pr) pr.addEventListener('click', () => {
       let freed = 0;
       for (const k of Object.keys(localStorage)) {
-        if (k === 'av_oracle' || k.startsWith('av_tpl_')) { freed += (localStorage.getItem(k) || '').length; localStorage.removeItem(k); }
+        if (k === 'av_oracle' || k.startsWith('av_tpl_') || k.startsWith('av_set_')) { freed += (localStorage.getItem(k) || '').length; localStorage.removeItem(k); }
       }
       toast('Freed ' + (freed / 1024).toFixed(0) + ' KB. Caches rebuild themselves as needed.');
       App.refresh();
@@ -1535,5 +1651,5 @@ const UI = (() => {
     App.refresh();
   }
 
-  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, viewCoach, wire, hoverPreview, refreshPrices, toast };
+  return { viewDashboard, viewCollection, viewDecks, viewMyDeck, viewMoves, viewImport, viewSession, viewGuide, viewData, viewBuild, viewPilot, viewCoach, viewCollector, wire, hoverPreview, refreshPrices, toast };
 })();

@@ -193,6 +193,35 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   }
   ok(gridFail === 0, 'build grid clean (' + gridPass + ' combos)');
 
+  // ---------- collector: set progress + collection ticker ----------
+  section('COLLECTOR');
+  try { require('./data/sets.js'); } catch (e) { /* baked separately */ }
+  if (window.VAULT_SETS) {
+    ok(window.VAULT_SETS.sets.length >= 240, 'set index covers 240+ sets (' + window.VAULT_SETS.sets.length + ')');
+    ok(window.VAULT_SETS.sets.every((s) => s.total >= 5 && s.c && s.n), 'every set entry has code, name, denominator');
+    const prog = Store.setProgress();
+    ok(prog && prog.sets.length > 0, 'set progress found from ManaBox set codes (' + (prog ? prog.sets.length : 0) + ' sets started)');
+    ok(prog.sets.every((s) => s.owned <= s.total && s.pct <= 1), 'owned never exceeds the set size');
+    const collectorView = UI.viewCollector();
+    ok(typeof collectorView === 'string' && collectorView.includes('set-row'), 'collector page renders (' + collectorView.length + ')');
+  } else {
+    ok(false, 'sets.js missing; run deck-overhaul/16-sets.js');
+  }
+  ok(Store.setTier(0, 100).name === 'Dabbler' && Store.setTier(25, 100).name === 'Collector' &&
+     Store.setTier(50, 100).name === 'Curator' && Store.setTier(75, 100).name === 'Archivist' &&
+     Store.setTier(90, 100).name === 'Completionist' && Store.setTier(100, 100).name === 'Set Master', 'tier ladder correct');
+  // collection ticker: nudge one baseline down and the aggregate must go green
+  const tickRow = Store.rows().find((r) => Store.unitPrice(r.n, r.sid, r.f) > 1);
+  ok(!!tickRow, 'priced row available for ticker test');
+  const tickUnit = Store.unitPrice(tickRow.n, tickRow.sid, tickRow.f);
+  const tickKey = (tickRow.sid || Store.norm(tickRow.n)) + '|' + (tickRow.f || '');
+  const hadBase = Store.state.baseline[tickKey];
+  Store.state.baseline[tickKey] = tickUnit * 0.8; // bought 20% cheaper than today
+  const agg = Store.collectionTicker();
+  const expected = tickUnit * 0.2 * tickRow.q;
+  ok(agg && Math.abs(agg.d - expected) < 0.05 && agg.pct > 0, 'collection ticker sums per-card movement (+' + (agg ? agg.d.toFixed(2) : '?') + ' expected +' + expected.toFixed(2) + ')');
+  if (hadBase != null) Store.state.baseline[tickKey] = hadBase; else delete Store.state.baseline[tickKey];
+
   // ---------- locked copies: owned cards committed to other decks ----------
   section('LOCKED');
   const tplA = window.VAULT_TEMPLATES.archetypes.find((a) => a.key === 'aristocrats');

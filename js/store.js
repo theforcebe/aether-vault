@@ -109,6 +109,55 @@ const Store = (() => {
   function rowValue(r) { return unitPrice(r.n, r.sid, r.f) * r.q; }
   function cardValue(n, sid) { return unitPrice(n, sid, ''); }
   function collectionTotal() { return rows().reduce((s, r) => s + rowValue(r), 0); }
+
+  // whole-collection movement: every card's change vs its first-seen price,
+  // quantity-weighted and summed. Rows without a baseline yet are excluded so
+  // newly added cards do not read as gains.
+  function collectionTicker() {
+    let base = 0, cur = 0;
+    for (const r of rows()) {
+      const key = (r.sid || norm(r.n)) + '|' + (r.f || '');
+      const b = state.baseline[key];
+      const c = unitPrice(r.n, r.sid, r.f);
+      if (b == null || !c) continue;
+      base += b * r.q;
+      cur += c * r.q;
+    }
+    const d = cur - base;
+    if (base <= 0 || Math.abs(d) < 0.01) return null;
+    return { d, pct: (d / base) * 100 };
+  }
+
+  // Collector page: per-set unique-card ownership from ManaBox set codes.
+  function setProgress() {
+    const S = typeof window !== 'undefined' && window.VAULT_SETS;
+    if (!S) return null;
+    const ownedBySet = {};
+    let unmatchedRows = 0;
+    for (const r of rows()) {
+      if (!r.s) { unmatchedRows++; continue; }
+      (ownedBySet[r.s] ||= new Set()).add(norm(r.n));
+    }
+    const out = [];
+    for (const s of S.sets) {
+      const owned = ownedBySet[s.c] ? ownedBySet[s.c].size : 0;
+      if (!owned) continue;
+      out.push({ ...s, owned: Math.min(owned, s.total), pct: Math.min(1, owned / s.total) });
+    }
+    out.sort((a, b) => b.pct - a.pct || b.owned - a.owned);
+    return { sets: out, unmatchedRows };
+  }
+
+  function setTier(owned, total) {
+    const pct = total > 0 ? owned / total : 0;
+    if (pct >= 1) return { name: 'Set Master', cls: 'gold' };
+    if (pct >= 0.9) return { name: 'Completionist', cls: 'gold' };
+    if (pct >= 0.75) return { name: 'Archivist', cls: 'own' };
+    if (pct >= 0.5) return { name: 'Curator', cls: 'own' };
+    if (pct >= 0.25) return { name: 'Collector', cls: '' };
+    if (pct >= 0.1 || owned >= 10) return { name: 'Scout', cls: '' };
+    return { name: 'Dabbler', cls: 'dim' };
+  }
   function priceAge() { const ts = state.prices._ts; return ts ? (Date.now() - ts) / 36e5 : null; }
 
   // ---------- price baseline (first price the app ever saw for a printing+finish) ----------
@@ -485,7 +534,7 @@ const Store = (() => {
   return {
     state, norm, card, sidFor,
     rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
-    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker,
+    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier,
     userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,
