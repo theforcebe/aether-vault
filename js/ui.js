@@ -5,7 +5,7 @@ const UI = (() => {
   const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const money = (v) => '$' + (v || 0).toFixed(2);
-  const CI_COLORS = { W: '#f5efc9', U: '#5aa8e6', B: '#9a86b8', R: '#f0715a', G: '#59b881', C: '#9aa3b5' };
+  const CI_COLORS = { W: '#f2ecd7', U: '#5b8fc9', B: '#4a4550', R: '#d96b5a', G: '#5a9a72', C: '#c2c4cb' };
 
   let dragCard = null;
 
