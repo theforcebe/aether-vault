@@ -92,6 +92,32 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   try { Store.parseManaBoxCsv('Nope,Headers\n1,2'); } catch (e) { threw = true; }
   ok(threw, 'bad CSV rejected');
 
+  // golden fixture: the canonical v3 backup shape, field by field. If a code
+  // change breaks ANY of these assertions, it would corrupt real user backups.
+  const golden = {
+    app: 'aether-vault', version: 3,
+    prices: { solring: { usd: 1.5 } }, prev: { solring: { usd: 1.4 } },
+    snapshots: [{ d: '2026-08-01', total: 100 }],
+    moves: [{ id: 'm1', n: 'Sol Ring', from: 'collection', to: 'd1', ts: 1 }],
+    sessions: [{ id: 's1', name: 'Imported list', cards: [{ n: 'Sol Ring', q: 1 }] }],
+    resolved: { solring: 'sid123' },
+    userdecks: [{ id: 'd1', name: 'Golden deck', commander: 'Sol Ring', cards: [{ n: 'Sol Ring', q: 1, sid: '' }] }],
+    mycollection: { label: 'Golden', rows: [{ n: 'Sol Ring', q: 3, b: 'Extras', f: '', sid: '' }] },
+    seeded: false, baseline: { 'solring|': 1.2 },
+  };
+  Store.importBackup(JSON.parse(JSON.stringify(golden)));
+  ok(Store.rows().length === 1 && Store.rows()[0].q === 3, 'golden: collection rows and quantities survive');
+  ok(Store.state.userdecks.length === 1 && Store.state.userdecks[0].commander === 'Sol Ring', 'golden: decks and commanders survive');
+  ok(Store.state.moves.length === 1 && Store.state.sessions.length === 1, 'golden: moves and sessions survive');
+  ok(Store.state.snapshots.length === 1 && Store.state.prices.solring && Store.state.prev.solring, 'golden: history survives');
+  ok(Store.state.baseline['solring|'] === 1.2 && Store.state.resolved.solring === 'sid123', 'golden: baselines and resolutions survive');
+  const gc2 = Sync.counts(Sync.currentVault());
+  ok(gc2.cards === 3 && gc2.decks === 1, 'golden: sync counts agree');
+  // a foreign file must throw BEFORE touching anything
+  let rejected = false;
+  try { Store.importBackup({ someOtherApp: true, rows: [] }); } catch (e) { rejected = true; }
+  ok(rejected && Store.rows().length === 1 && Store.state.userdecks.length === 1, 'foreign JSON rejected, state untouched');
+
   Store.importBackup(JSON.parse(fs.readFileSync('C:/Users/keane/Downloads/aether-vault-keanen.json', 'utf8')));
   ok(Store.rows().length > 1500, 'personal backup restores (' + Store.rows().length + ' rows)');
   ok(Store.state.userdecks.length >= 7, 'user decks restored (' + Store.state.userdecks.length + ')');
@@ -166,6 +192,33 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
     }
   }
   ok(gridFail === 0, 'build grid clean (' + gridPass + ' combos)');
+
+  // ---------- locked copies: owned cards committed to other decks ----------
+  section('LOCKED');
+  const tplA = window.VAULT_TEMPLATES.archetypes.find((a) => a.key === 'aristocrats');
+  const unowned = tplA.commanders[0].cards.find((c) => !c.basic && !Store.byName[Store.norm(c.n)] && !/^(plains|island|swamp|mountain|forest|wastes)/i.test(c.n));
+  ok(!!unowned, 'template card without ownership found (' + (unowned && unowned.n) + ')');
+  Store.addPurchased([{ n: unowned.n, q: 2, unit: 0, sid: unowned.sid || '' }]);
+  const lockDeck = Store.createUserDeck('Lock test', [{ n: unowned.n, q: 2, sid: '' }]);
+  const lockedRes = Builder.build({ archKey: 'aristocrats', cmdIdx: 0, bracket: 3, useCollection: true, substitute: false });
+  const lockedRow = lockedRes.cards.find((c) => Store.norm(c.n) === Store.norm(unowned.n));
+  ok(lockedRow && lockedRow.status === 'buy' && lockedRow.lockedIn && lockedRow.lockedIn.name === 'Lock test', 'fully-committed copies read as locked, not owned');
+  Store.setUserQty(lockDeck.id, unowned.n, 1);
+  const freeRes = Builder.build({ archKey: 'aristocrats', cmdIdx: 0, bracket: 3, useCollection: true, substitute: false });
+  const freeRow = freeRes.cards.find((c) => Store.norm(c.n) === Store.norm(unowned.n));
+  ok(freeRow && freeRow.status === 'owned', 'a free copy still counts as owned');
+  // executing the pull: reserved card leaves the source deck and logs a move
+  lockedRow.status = 'reserved';
+  Store.setUserQty(lockDeck.id, unowned.n, 2);
+  const target = Store.createUserDeck('Pull target', []);
+  const srcRow = Store.userDeck(lockDeck.id).cards.find((c) => Store.norm(c.n) === Store.norm(unowned.n));
+  Store.setUserQty(lockDeck.id, unowned.n, srcRow.q - lockedRow.q);
+  Store.addMove(unowned.n, lockDeck.id, target.id);
+  const afterSrc = Store.userDeck(lockDeck.id).cards.find((c) => Store.norm(c.n) === Store.norm(unowned.n));
+  ok((afterSrc ? afterSrc.q : 0) === 2 - lockedRow.q, 'pull decrements the source deck');
+  ok(Store.state.moves.some((mv) => mv.n === unowned.n && mv.from === lockDeck.id && mv.to === target.id), 'pull lands on the Moves checklist');
+  Store.deleteUserDeck(lockDeck.id);
+  Store.deleteUserDeck(target.id);
 
   // ---------- views: full data ----------
   section('VIEWS');

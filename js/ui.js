@@ -663,11 +663,18 @@ const UI = (() => {
 
   function buildResultHtml(res) {
     const s = res.stats;
+    // statuses toggle after render (move-from-deck reservations); keep money honest
+    s.buyCount = res.cards.filter((c) => c.status === 'buy').reduce((x, c) => x + c.q, 0);
+    s.buyCost = res.cards.filter((c) => c.status === 'buy').reduce((x, c) => x + (c.usd || 0) * c.q, 0) + (s.commanderOwned ? 0 : (res.commander.usd || 0));
+    const reservedN = res.cards.filter((c) => c.status === 'reserved').reduce((x, c) => x + c.q, 0);
     const groups = {};
     for (const c of res.cards) (groups[c.t === 'Land' ? 'Lands' : c.t + 's'] ||= []).push(c);
     const badge = (c) => c.status === 'owned' ? '<span class="badge own">owned</span>'
+      : c.status === 'reserved' ? '<span class="badge moved">moving from ' + esc(c.lockedIn.name) + '</span><button class="btn small" data-unpull="' + esc(c.n) + '">Undo</button>'
       : c.status === 'sub' ? '<span class="badge moved" title="Substituted for ' + esc(c.subFor || '') + '">sub</span>'
       : c.status === 'basic' ? '<span class="badge">basic</span>'
+      : c.lockedIn ? '<span class="badge warn" title="You own this, but every copy is in that deck">in ' + esc(c.lockedIn.name) + '</span>' +
+        '<span class="badge buy">' + money((c.usd || 0)) + '</span><button class="btn small" data-pull="' + esc(c.n) + '">Use that copy</button>'
       : '<span class="badge buy">' + money((c.usd || 0)) + '</span>';
     let cols = '';
     for (const [g, list] of Object.entries(groups)) {
@@ -676,6 +683,9 @@ const UI = (() => {
         list.map((c) => '<div class="d-row" data-hover-sid="' + (c.sid || '') + '"><span class="d-q">' + c.q + '</span>' +
           '<span class="d-n">' + esc(c.n) + (c.subFor ? ' <span class="dim">for ' + esc(c.subFor) + '</span>' : '') + '</span>' + badge(c) + '</div>').join('') + '</div>';
     }
+    const reservedLine = reservedN
+      ? '<div class="dim" style="margin-top:8px">' + reservedN + (reservedN > 1 ? ' cards' : ' card') + ' will move out of other decks when you save; each move lands on your Moves checklist for physical sorting.</div>'
+      : '';
     return '<section class="panel"><div class="panel-h">' + esc(res.archetype) + ' with ' + esc(res.commander.name) + ' <span class="badge gc">Bracket ' + s.bracket + '</span></div>' +
       '<div class="stat-row" style="margin-bottom:12px">' +
       '<div class="stat-tile"><div class="stat-label">Full deck value</div><div class="stat-value">' + money(s.totalValue) + '</div></div>' +
@@ -684,7 +694,7 @@ const UI = (() => {
       '<div class="stat-tile"><div class="stat-label">Game Changers kept</div><div class="stat-value">' + s.gcs.length + '</div><div class="dim">' + (s.gcs.join(', ') || 'none') + '</div></div></div>' +
       '<div class="page-actions"><button class="btn primary" id="bld-save">Save as my deck</button>' +
       '<button class="btn" id="bld-dl-deck">Decklist .txt</button>' +
-      '<button class="btn" id="bld-dl-buy">Buy list .txt</button></div>' +
+      '<button class="btn" id="bld-dl-buy">Buy list .txt</button></div>' + reservedLine +
       (res.notes.length ? '<div class="panel-h sub">Bracket adjustments</div><ul class="why">' + res.notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '') +
       (res.recommendations && res.recommendations.ownedPopular.length
         ? '<div class="panel-h sub">Already in your collection and popular in real ' + esc(res.archetype) + ' decks</div><div class="sig-row">' +
@@ -1245,20 +1255,44 @@ const UI = (() => {
           if (res.error) { status.textContent = res.error; }
           else {
             window.__lastBuild = res;
-            $('#bld-result').innerHTML = buildResultHtml(res);
-            const save = $('#bld-save');
-            if (save) save.addEventListener('click', () => {
-              const d = Store.createUserDeck(res.archetype + ' (' + res.commander.name.split(',')[0] + ')',
-                [{ n: res.commander.name, q: 1, sid: res.commander.sid }].concat(res.cards.map((c) => ({ n: c.n, q: c.q, sid: c.sid }))),
-                res.commander.name);
-              toast('Saved. Remember to back up from the Data page.');
-              location.hash = '#/mydeck/' + d.id;
-            });
-            const d1 = $('#bld-dl-deck');
-            if (d1) d1.addEventListener('click', () => dl('decklist.txt', Builder.decklistText(res)));
-            const d2 = $('#bld-dl-buy');
-            if (d2) d2.addEventListener('click', () => dl('buylist.txt', Builder.buylistText(res)));
-            $('#bld-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const showBuildResult = (r2, scroll) => {
+              const slot = $('#bld-result');
+              slot.innerHTML = buildResultHtml(r2);
+              const save = $('#bld-save');
+              if (save) save.addEventListener('click', () => {
+                const d = Store.createUserDeck(r2.archetype + ' (' + r2.commander.name.split(',')[0] + ')',
+                  [{ n: r2.commander.name, q: 1, sid: r2.commander.sid }].concat(r2.cards.map((c) => ({ n: c.n, q: c.q, sid: c.sid }))),
+                  r2.commander.name);
+                const pulls = r2.cards.filter((c) => c.status === 'reserved' && c.lockedIn);
+                for (const p of pulls) {
+                  const src = Store.userDeck(p.lockedIn.id);
+                  const row = src && src.cards.find((c) => Store.norm(c.n) === Store.norm(p.n));
+                  if (row) Store.setUserQty(p.lockedIn.id, p.n, row.q - p.q);
+                  Store.addMove(p.n, p.lockedIn.id, d.id);
+                }
+                toast(pulls.length
+                  ? 'Saved. ' + pulls.length + (pulls.length > 1 ? ' cards' : ' card') + ' moved out of other decks; the swaps are on your Moves checklist.'
+                  : 'Saved. Remember to back up from the Data page.');
+                location.hash = '#/mydeck/' + d.id;
+              });
+              const d1 = $('#bld-dl-deck');
+              if (d1) d1.addEventListener('click', () => dl('decklist.txt', Builder.decklistText(r2)));
+              const d2 = $('#bld-dl-buy');
+              if (d2) d2.addEventListener('click', () => dl('buylist.txt', Builder.buylistText(r2)));
+              $$('[data-pull]', slot).forEach((b) => b.addEventListener('click', () => {
+                const c = r2.cards.find((x) => x.n === b.getAttribute('data-pull'));
+                if (!c || !c.lockedIn) return;
+                sheet('Move ' + c.n + ' out of "' + c.lockedIn.name + '" and into this build?', [
+                  { label: 'Yes, take it from ' + c.lockedIn.name, cb: () => { c.status = 'reserved'; showBuildResult(r2, false); } },
+                ]);
+              }));
+              $$('[data-unpull]', slot).forEach((b) => b.addEventListener('click', () => {
+                const c = r2.cards.find((x) => x.n === b.getAttribute('data-unpull'));
+                if (c) { c.status = 'buy'; showBuildResult(r2, false); }
+              }));
+              if (scroll) slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            };
+            showBuildResult(res, true);
           }
         } catch (e) {
           status.textContent = /fetch|network|http/i.test(e.message || '') ? 'Could not reach Scryfall. Try again.' : 'Build failed: ' + (e.message || 'unknown error');

@@ -226,15 +226,29 @@ const Builder = (() => {
       }
     }
 
-    // ownership + substitution
+    // ownership + substitution. Quantity-aware: copies already committed to
+    // other decks are not free; those cards read as "buy" but carry lockedIn
+    // so the UI can offer moving the copy out of its current deck instead.
     const ownedFacts = opts.ownedFacts || null;
-    const usedOwned = new Set();
-    for (const d of Store.state.userdecks) for (const c of d.cards) usedOwned.add(lower(c.n));
+    const deckClaims = {};
+    for (const d of Store.state.userdecks) for (const dc of d.cards) {
+      const k = Store.norm(dc.n);
+      deckClaims[k] = deckClaims[k] || { q: 0, deck: null };
+      deckClaims[k].q += dc.q || 1;
+      if (!deckClaims[k].deck) deckClaims[k].deck = { id: d.id, name: d.name };
+    }
+    const freeCopies = (k, qty) => qty - (deckClaims[k] ? deckClaims[k].q : 0);
 
     for (const c of cards) {
       if (c.basic) { c.status = 'basic'; continue; }
-      const own = opts.useCollection ? Store.byName[Store.norm(c.n)] : null;
-      if (own && own.qty > 0) { c.status = 'owned'; c.inDeckAlready = usedOwned.has(lower(c.n)); continue; }
+      const k = Store.norm(c.n);
+      const own = opts.useCollection ? Store.byName[k] : null;
+      if (own && own.qty > 0) {
+        if (freeCopies(k, own.qty) >= c.q) { c.status = 'owned'; continue; }
+        c.status = 'buy';
+        if (deckClaims[k]) c.lockedIn = deckClaims[k].deck;
+        continue;
+      }
       c.status = 'buy';
       if (opts.substitute && ownedFacts && c.role !== 'none' && c.role !== 'land') {
         // Prefer owned cards that real decks of this archetype actually play.
@@ -242,8 +256,9 @@ const Builder = (() => {
         const brainF = {};
         if (brain) for (const bc of brain.cards) brainF[Store.norm(bc.n)] = bc.f;
         let best = null;
-        for (const [k, agg] of Object.entries(Store.byName)) {
-          if (used.has(k) || agg.qty <= 0) continue;
+        for (const [k2, agg] of Object.entries(Store.byName)) {
+          const k = k2;
+          if (used.has(k) || agg.qty <= 0 || freeCopies(k, agg.qty) <= 0) continue;
           const f = ownedFacts[lower(agg.name)];
           if (!f) continue;
           if ([...(f.ci || '')].some((x) => !ci.includes(x))) continue;
