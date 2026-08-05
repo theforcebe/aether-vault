@@ -875,11 +875,9 @@ const UI = (() => {
       '<div class="chips" style="margin:0 0 4px">' +
       '<a class="chip ' + (mode === 'cards' ? 'on' : '') + '" href="#/collector' + (showAll ? '?all=1' : '') + '">Unique cards</a>' +
       '<a class="chip ' + (mode === 'prints' ? 'on' : '') + '" href="#/collector?mode=prints' + (showAll ? '&all=1' : '') + '">All printings</a></div>';
-    const leaderboardPanel = '<section class="panel"><div class="panel-h">Leaderboard</div>' +
-      (Sync.enabled()
-        ? '<div id="lb-slot"><p class="dim">Checking the circle...</p></div>'
-        : '<p class="dim">The leaderboard lives in your sync circle. Set up sync on the Data page, then join from there.</p>') +
-      '</section>';
+    const leaderboardPanel = Sync.enabled()
+      ? '<div class="lb-bar" id="lb-slot"><span class="dim">Leaderboard...</span></div>'
+      : '<div class="lb-bar"><span class="lb-bar-l">Leaderboard</span><span class="dim">lives in your sync circle</span><a class="btn small" href="#/data" style="margin-left:auto">Set up sync</a></div>';
     return '<div class="page-h"><h1>Collector</h1></div>' + modeChips +
       leaderboardPanel +
       '<section class="panel collector-hero">' +
@@ -920,9 +918,14 @@ const UI = (() => {
 
   function leaderboardHtml(entries) {
     if (!entries.length) {
-      return '<p class="dim">Nobody on the board yet.' + (Sync.boardOn() ? ' Your entry appears after your next sync.' : ' Join from the Data page sync panel.') + '</p>';
+      return '<span class="lb-bar-l">Leaderboard</span><span class="dim">nobody on the board yet' +
+        (Sync.boardOn() ? '; yours appears after the next sync' : '; join from the Data page') + '</span>';
     }
     const meSlug = (Sync.meta() || {}).slug;
+    const myIdx = entries.findIndex((e) => e.slug === meSlug);
+    const mini = entries.slice(0, 3).map((e, i) =>
+      '<span class="lb-mini' + (e.slug === meSlug ? ' me' : '') + '"><span class="lb-medal m' + (i + 1) + '">' + (i + 1) + '</span>' +
+      esc(e.name) + ' <span class="dim">' + (e.cards || 0).toLocaleString() + '</span></span>').join('');
     const row = (e, i) => {
       const me = e.slug === meSlug;
       return '<div class="lb-row' + (me ? ' me' : '') + '">' +
@@ -932,16 +935,11 @@ const UI = (() => {
         '<span class="lb-nums"><strong>' + (e.cards || 0).toLocaleString() + '</strong> cards' +
         '<span class="dim">' + (e.prints || 0).toLocaleString() + ' printings' + (e.masters ? ', ' + e.masters + ' mastered' : '') + '</span></span></div>';
     };
-    const top = entries.slice(0, 3).map(row).join('');
-    const rest = entries.slice(3);
-    const myIdx = entries.findIndex((e) => e.slug === meSlug);
-    return top +
-      (rest.length
-        ? '<div id="lb-more" hidden>' + rest.map((e, i) => row(e, i + 3)).join('') + '</div>' +
-          '<div class="page-actions" style="margin-top:8px"><button class="btn small" id="lb-toggle">View all ' + entries.length +
-          (myIdx >= 3 ? ' (you are #' + (myIdx + 1) + ')' : '') + '</button></div>'
-        : '') +
-      '<div class="dim" style="margin-top:8px">Ranked by distinct cards. Standings update as people sync.</div>';
+    return '<span class="lb-bar-l">Leaderboard</span>' + mini +
+      '<button class="btn small" id="lb-toggle" style="margin-left:auto">' +
+      (entries.length > 3 ? 'All ' + entries.length : 'Details') + (myIdx >= 3 ? ', you #' + (myIdx + 1) : '') + '</button>' +
+      '<div id="lb-more" class="lb-more" hidden>' + entries.map(row).join('') +
+      '<div class="dim" style="margin-top:6px">Ranked by distinct cards. Standings update as people sync.</div></div>';
   }
 
   async function fetchSetCards(code, mode) {
@@ -1141,10 +1139,13 @@ const UI = (() => {
             lbSlot.innerHTML = leaderboardHtml(entries);
             const tg = lbSlot.querySelector('#lb-toggle');
             const more = lbSlot.querySelector('#lb-more');
-            if (tg && more) tg.addEventListener('click', () => {
-              more.hidden = !more.hidden;
-              tg.textContent = more.hidden ? 'View all ' + entries.length : 'Show top 3';
-            });
+            if (tg && more) {
+              const openLabel = tg.textContent;
+              tg.addEventListener('click', () => {
+                more.hidden = !more.hidden;
+                tg.textContent = more.hidden ? openLabel : 'Hide';
+              });
+            }
           })
           .catch(() => { lbSlot.innerHTML = '<p class="dim">Could not reach the circle. Check your connection and token.</p>'; });
       }
