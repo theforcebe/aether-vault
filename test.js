@@ -130,6 +130,21 @@ global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: ()
   ok(rep.brainSuggestions && rep.brainSuggestions.items.length >= 5, 'suggestions produced');
   ok(rep.brainSuggestions.items.some((i) => i.because && i.because.length), 'suggestions carry because-clauses');
 
+  // ---------- complete-my-deck + budget ceiling ----------
+  section('COMPLETE');
+  const partial = Store.createUserDeck('Test partial', Store.deckView(meren.id).cards.slice(0, 45).map((c) => ({ n: c.n, q: 1, sid: c.sid })));
+  Store.setUserCommander(partial.id, 'Meren of Clan Nel Toth');
+  const prop = Builder.completeMyDeck(Store.deckView(partial.id));
+  ok(!prop.error && prop.needed > 0, 'proposal generated (' + prop.needed + ' needed)');
+  ok(prop.adds.length + prop.basics.reduce((s, b) => s + b.q, 0) === prop.needed, 'proposal fills exactly to 99');
+  ok(prop.adds.every((a) => !a.role || a.role !== 'land'), 'spell adds are not lands');
+  ok(prop.basics.every((b) => /^(Swamp|Forest|Wastes)$/.test(b.n)), 'basics match color identity');
+  Store.deleteUserDeck(partial.id);
+  const bres = Builder.build({ archKey: 'aristocrats', cmdIdx: 0, bracket: 3, useCollection: false, substitute: false, budget: 100 });
+  const bcost = bres.cards.filter((c) => !c.basic).reduce((s, c) => s + (c.usd || 0) * c.q, 0) + (bres.commander.usd || 0);
+  ok(bres.cards.reduce((s, c) => s + c.q, 0) === 99, 'budget build still exactly 99');
+  ok(bcost <= 130, 'budget shaping lands near the ceiling ($' + bcost.toFixed(0) + ' vs $100 cap)');
+
   // ---------- builder grid ----------
   section('BUILDER');
   ok(Builder.allCommanders().length >= 600, 'allCommanders serves the directory');

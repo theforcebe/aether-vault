@@ -414,6 +414,24 @@ const UI = (() => {
     return cols;
   }
 
+  function completeProposalHtml(prop) {
+    const buyCost = prop.adds.filter((a) => !a.owned).reduce((s, a) => s + (a.usd || 0), 0);
+    const basicsN = prop.basics.reduce((s, b) => s + b.q, 0);
+    const row = (a) =>
+      '<div class="sugg-row" data-hover-sid="' + (a.sid || '') + '">' +
+      '<span class="sugg-n">' + esc(a.n) + '</span>' +
+      '<span class="dim">' + Math.round(a.f * 100) + '% of real decks' + (a.because && a.because.length ? ', fits ' + a.because.map(esc).join(' and ') : '') + '</span>' +
+      (a.owned ? '<span class="badge own">owned</span>' : '<span class="badge buy">' + money(a.usd || 0) + '</span>') +
+      '<button class="btn small" data-cpadd="' + esc(a.n) + '">Add</button></div>';
+    return '<section class="panel"><div class="panel-h">Completing this deck <span class="dim">' +
+      (prop.archetype ? 'reads as ' + esc(prop.archetype) + ', ' + Math.round(prop.matchScore * 100) + '% match' : 'no strong theme yet') + '</span></div>' +
+      (prop.adds.length ? prop.adds.map(row).join('') : '<p class="dim">No spell suggestions; the deck mostly needs lands.</p>') +
+      (basicsN ? '<div class="sugg-row"><span class="sugg-n">' + prop.basics.map((b) => b.q + ' ' + esc(b.n)).join(', ') + '</span>' +
+        '<span class="dim">real ' + (prop.archetype ? esc(prop.archetype) : '') + ' decks average ' + prop.landTarget + ' lands</span><span class="badge basic">lands</span></div>' : '') +
+      '<div class="page-actions" style="margin-top:10px"><button class="btn primary" id="cp-addall">Add all ' + (prop.adds.length + basicsN) + '</button>' +
+      '<span class="dim">' + (buyCost > 0 ? 'about ' + money(buyCost) + ' to buy' : 'nothing to buy') + '</span></div></section>';
+  }
+
   function reportHtml(r, ctx) {
     if (!r) return '';
     const bracketInfo = Rules.BRACKETS[r.bracket - 1];
@@ -514,8 +532,13 @@ const UI = (() => {
         '<button class="btn small" id="buy-all">Mark all as bought</button>' +
         '<button class="btn small" id="dl-missing">Buy list .txt</button></div>'
       : (Store.hasCollection() ? '<div class="deck-actions"><span class="badge own">fully owned</span></div>' : '');
+    const nonCmdTotal = dv.cards.filter((c) => c.src !== 'commander').reduce((s, c) => s + c.q, 0);
+    const completeBar = nonCmdTotal < 99
+      ? '<div class="deck-actions"><span class="badge warn">' + nonCmdTotal + ' of 99</span>' +
+        '<button class="btn small" id="complete-deck">Complete my deck</button></div>'
+      : '';
     const visual = deckViewPref() === 'visual';
-    return deckHeadHtml(dv, extra + buyBar, id) +
+    return deckHeadHtml(dv, extra + buyBar + completeBar, id) +
       '<div id="report-slot">' + (reports[id] ? reportHtml(reports[id], { editableId: id }) : '') + '</div>' +
       '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { editable: true, ci: dv.ci || null, showNeed: Store.hasCollection(), visual }) + '</div>';
   }
@@ -617,6 +640,8 @@ const UI = (() => {
       featured +
       '<select id="bld-arch" title="Build style">' + archOptions + '</select>' +
       '<select id="bld-bracket"><option value="2" ' + (bracket === 2 ? 'selected' : '') + '>Bracket 2: Core</option><option value="3" ' + (bracket === 3 ? 'selected' : '') + '>Bracket 3: Upgraded</option><option value="4" ' + (bracket === 4 ? 'selected' : '') + '>Bracket 4: Optimized</option></select>' +
+      '<select id="bld-budget" title="Cost ceiling"><option value="0">No cost limit</option>' +
+      [50, 100, 200, 400].map((b) => '<option value="' + b + '" ' + (params.budget === String(b) ? 'selected' : '') + '>Under $' + b + '</option>').join('') + '</select>' +
       '<label class="chk"><input type="checkbox" id="bld-own" ' + (Store.hasCollection() ? 'checked' : 'disabled') + '> Use my collection</label>' +
       '<label class="chk"><input type="checkbox" id="bld-sub" ' + (Store.hasCollection() ? '' : 'disabled') + '> Substitute owned equivalents</label>' +
       '<button class="btn primary" id="bld-go">Build</button></div>' +
@@ -988,6 +1013,29 @@ const UI = (() => {
       if (cmd) cmd.addEventListener('change', () => { Store.setUserCommander(id, cmd.value); App.refresh(); });
       const del = $('#del-mydeck', root);
       if (del) del.addEventListener('click', () => sheet('Delete this deck?', [{ label: 'Delete ' + (Store.userDeck(id) || {}).name, cb: () => { Store.deleteUserDeck(id); location.hash = '#/decks'; } }]));
+      const cpd = $('#complete-deck', root);
+      if (cpd) cpd.addEventListener('click', async () => {
+        cpd.disabled = true;
+        cpd.textContent = 'Reading the deck...';
+        await App.ensureData();
+        const prop = Builder.completeMyDeck(Store.deckView(id));
+        if (prop.error) { toast(prop.error); cpd.disabled = false; cpd.textContent = 'Complete my deck'; return; }
+        const slot = $('#report-slot', root);
+        slot.innerHTML = completeProposalHtml(prop) + slot.innerHTML;
+        cpd.textContent = 'Proposal below';
+        const addAll = $('#cp-addall', root);
+        if (addAll) addAll.addEventListener('click', () => {
+          for (const a of prop.adds) Store.addToUserDeck(id, a.n, 1);
+          for (const b of prop.basics) Store.addToUserDeck(id, b.n, b.q);
+          toast('Deck completed. Anything you do not own shows in the buy bar.');
+          App.refresh();
+        });
+        $$('[data-cpadd]', root).forEach((btn) => btn.addEventListener('click', () => {
+          Store.addToUserDeck(id, btn.getAttribute('data-cpadd'), 1);
+          btn.disabled = true;
+          btn.textContent = 'Added';
+        }));
+      });
       $$('[data-inc]', root).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-inc'), 1); App.refresh(); }));
       $$('[data-dec]', root).forEach((b) => b.addEventListener('click', () => {
         const n = b.getAttribute('data-dec');
@@ -1065,8 +1113,10 @@ const UI = (() => {
             ownedFacts = await Builder.scanCollection((d, t) => { status.textContent = 'Scanning ' + d + ' of ' + t + ' owned cards...'; });
           }
           const cmdSel = $('#bld-cmd', root);
+          const budSel = $('#bld-budget', root);
           const res = Builder.build({
             archKey, cmdIdx: cmdSel ? parseInt(cmdSel.value, 10) : 0, cmdOverride,
+            budget: budSel ? parseInt(budSel.value, 10) : 0,
             bracket: parseInt(brSel.value, 10), useCollection, substitute, ownedFacts,
           });
           status.textContent = '';

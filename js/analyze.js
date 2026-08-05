@@ -199,7 +199,7 @@ const Analyze = (() => {
           items.push({
             n: bc.n, f: bc.f, usd: bc.usd, sid: bc.sid,
             owned: !!(own && own.qty > 0),
-            score: bc.f * 0.6 + cos * 0.4,
+            score: bc.f * 0.65 + cos * 0.35, // blend chosen by benchmark.js (BENCHMARKS.md)
             because: vec ? Vec.because(bc.n, deckNormSet, 3) : [],
           });
         }

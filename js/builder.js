@@ -287,6 +287,26 @@ const Builder = (() => {
     // substitutions can sneak a Game Changer back in; enforce once more
     enforceGcLimit();
 
+    // budget ceiling: swap the priciest to-buy cards down until under the cap
+    if (opts.budget > 0) {
+      const inCost = (c) => (c.status === 'buy' || !opts.useCollection) && !c.basic;
+      const cost = () => cards.filter(inCost).reduce((s, c) => s + (c.usd || 0) * c.q, 0) +
+        (opts.useCollection && Store.byName[Store.norm(cmd.name)] ? 0 : (cmd.usd || 0));
+      let guard = 30;
+      while (cost() > opts.budget && guard-- > 0) {
+        const list = cards.filter(inCost).sort((a, b) => (b.usd || 0) - (a.usd || 0));
+        const target = list[0];
+        if (!target || (target.usd || 0) < 1) break;
+        const i = cards.indexOf(target);
+        const before = target.usd || 0;
+        replace(i, 'keeps the build under your $' + opts.budget + ' ceiling, was $' + before.toFixed(0));
+        cards[i].status = opts.useCollection && Store.byName[Store.norm(cards[i].n)] ? 'owned' : (cards[i].basic ? 'basic' : 'buy');
+        if ((cards[i].usd || 0) >= before) break; // nothing cheaper left in the pool
+      }
+      if (cost() > opts.budget) notes.push('Closest to the $' + opts.budget + ' ceiling without gutting the deck: $' + cost().toFixed(0) + '.');
+      enforceGcLimit();
+    }
+
     // exact-99 guarantee: averaged templates occasionally run a few cards short
     let total99 = cards.reduce((s, c) => s + c.q, 0);
     if (total99 < 99) {
@@ -358,5 +378,64 @@ const Builder = (() => {
     return cmp.rows.filter((r) => r.need > 0).map((r) => r.need + ' ' + r.n).join('\n');
   }
 
-  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor, allCommanders, findCommander, fittingArchetypes };
+  // Fill an under-99 user deck with the benchmark-adopted ranker: best-match
+  // archetype staples scored f*0.65 + cos*0.35, color-filtered, lands topped
+  // up to what real decks of the theme run. Returns a proposal, mutates nothing.
+  function completeMyDeck(dv) {
+    const BR = window.VAULT_BRAIN;
+    if (!BR) return { error: 'Deck intelligence is still loading.' };
+    const nonCmd = dv.cards.filter((c) => c.src !== 'commander');
+    const total = nonCmd.reduce((s, c) => s + c.q, 0);
+    const needed = 99 - total;
+    if (needed <= 0) return { adds: [], basics: [], needed: 0 };
+    const keys = new Set(nonCmd.map((c) => Store.norm(c.n)));
+    let best = null, bestS = 0, bestKey = null;
+    for (const [key, arch] of Object.entries(BR.archetypes)) {
+      let hit = 0, denom = 0;
+      for (const bc of arch.cards.slice(0, 60)) { denom += bc.f; if (keys.has(Store.norm(bc.n))) hit += bc.f; }
+      const s = denom ? hit / denom : 0;
+      if (s > bestS) { bestS = s; best = arch; bestKey = key; }
+    }
+    if (bestS < 0.05) best = null;
+    const ci = dv.ci || '';
+    const landTarget = best ? best.comp.lands : 36;
+    let lands = 0;
+    for (const c of nonCmd) {
+      const f = Store.card(c.n);
+      if ((f && /land/i.test(f.t)) || /^(plains|island|swamp|mountain|forest|wastes|snow-covered)/i.test(c.n)) lands += c.q;
+    }
+    let landsNeeded = Math.max(0, Math.min(needed, landTarget - lands));
+    const spellsNeeded = needed - landsNeeded;
+    const adds = [];
+    if (best && spellsNeeded > 0) {
+      const vec = Vec.deckVector(nonCmd.map((c) => c.n));
+      const ranked = [];
+      for (const bc of best.cards) {
+        const k = Store.norm(bc.n);
+        if (keys.has(k)) continue;
+        if (ci && [...(bc.ci || '')].some((x) => !ci.includes(x))) continue;
+        if (bc.role === 'land') continue;
+        const cos = vec ? Vec.scoreCard(vec, bc.n) : 0;
+        ranked.push({
+          n: bc.n, sid: bc.sid, usd: bc.usd, f: bc.f, role: bc.role,
+          score: bc.f * 0.65 + cos * 0.35,
+          owned: !!(Store.byName[k] && Store.byName[k].qty > 0),
+          because: Vec.because(bc.n, keys, 2),
+        });
+      }
+      ranked.sort((a, b) => b.score - a.score);
+      adds.push(...ranked.slice(0, spellsNeeded));
+      if (adds.length < spellsNeeded) landsNeeded += spellsNeeded - adds.length;
+    } else if (!best) landsNeeded = Math.max(landsNeeded, 0);
+    const basics = [];
+    const colors = ci ? [...ci] : [];
+    for (let i = 0; i < landsNeeded; i++) {
+      const b = colors.length ? BASIC_FOR[colors[i % colors.length]] : 'Wastes';
+      const row = basics.find((x) => x.n === b);
+      if (row) row.q++; else basics.push({ n: b, q: 1 });
+    }
+    return { adds, basics, needed, archetype: bestKey, matchScore: bestS, landTarget };
+  }
+
+  return { matchTheme, archetype, templates: T, build, scanCollection, decklistText, buylistText, compare, compareBuylistText, directory, loadCommanderTemplate, brainFor, allCommanders, findCommander, fittingArchetypes, completeMyDeck };
 })();
