@@ -73,8 +73,9 @@ const Analyze = (() => {
     const fast = cards.filter((c) => Rules.FAST.has(lower(c.n)));
     const free = cards.filter((c) => Rules.FREE.has(lower(c.n)));
     const tutors = cards.filter((c) => Rules.TUTORS.has(lower(c.n)) || (Rules.genericTutor(c) && !Rules.isLand(c)));
-    const combos = Rules.COMBO_PAIRS.filter((p) => names.has(lower(p.a)) && names.has(lower(p.b)));
-    const fastCombos = combos.filter((p) => p.mvSum <= 6);
+    const combos = Rules.comboPairs().filter((p) => names.has(lower(p.a)) && names.has(lower(p.b)));
+    const fastCombos = combos.filter((p) => Rules.comboIsFast(p));
+    const triples = Rules.comboTriples().filter((t) => t.c.every((n) => names.has(lower(n))));
 
     // bracket floor from hard rules
     let bracket = 2;
@@ -218,7 +219,7 @@ const Analyze = (() => {
       totalCards, unresolved, comp, avgMv: avgMv.toFixed(2),
       gcs: gcs.map((c) => c.n), mld: mld.map((c) => c.n), turns: turns.map((c) => c.n),
       fast: fast.map((c) => c.n), free: free.map((c) => c.n), tutors: tutors.map((c) => c.n),
-      combos, fastCombos: fastCombos.length,
+      combos, fastCombos: fastCombos.length, triples,
       bracket, feel, why, power: Math.round(power * 10) / 10,
       archetypes: arch.slice(0, 4), suggestions, cuts: cuts.map((c) => ({ n: c.n, mv: c.mv })),
       brainMatches, brainSuggestions, similarDecks,

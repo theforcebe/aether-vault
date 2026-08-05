@@ -418,12 +418,29 @@ const UI = (() => {
     if (!r) return '';
     const bracketInfo = Rules.BRACKETS[r.bracket - 1];
     const feelInfo = Rules.BRACKETS[r.feel - 1];
+    // baselines: prefer real decks of the matched archetype at this deck's
+    // bracket; fall back to archetype-wide, then the generic ranges
+    const matchedArch = (r.brainMatches && r.brainMatches[0] && window.VAULT_BRAIN)
+      ? window.VAULT_BRAIN.archetypes[r.brainMatches[0].key] : null;
+    const bucket = r.bracket <= 2 ? 'b2' : r.bracket === 3 ? 'b3' : 'b4plus';
+    const brainComp = matchedArch
+      ? ((matchedArch.compByBracket && matchedArch.compByBracket[bucket]) || matchedArch.comp)
+      : null;
+    const brainCompLabel = matchedArch
+      ? (r.brainMatches[0].name + (matchedArch.compByBracket && matchedArch.compByBracket[bucket] ? ' B' + (r.bracket <= 2 ? '1-2' : r.bracket === 3 ? '3' : '4+') : '') + ' avg')
+      : null;
     const compRow = (label, key) => {
       const [lo, hi] = Rules.BASELINES[key];
       const v = r.comp[key];
-      const cls = v < lo ? 'low' : v > hi + 3 ? 'high' : 'ok';
-      return '<div class="comp-row"><span>' + label + '</span><span class="comp-v ' + cls + '">' + v + '</span><span class="dim">' + lo + '-' + hi + '</span></div>';
+      const ref = brainComp && brainComp[key] != null ? brainComp[key] : null;
+      const cls = ref != null
+        ? (v < ref - 3 ? 'low' : v > ref + 4 ? 'high' : 'ok')
+        : (v < lo ? 'low' : v > hi + 3 ? 'high' : 'ok');
+      return '<div class="comp-row"><span>' + label + '</span><span class="comp-v ' + cls + '">' + v + '</span><span class="dim">' + (ref != null ? ref : lo + '-' + hi) + '</span></div>';
     };
+    const compRef = brainComp
+      ? '<div class="dim" style="font-size:11.5px;margin-bottom:4px">vs ' + esc(brainCompLabel) + ' (' + (brainComp.n || matchedArch.decks) + ' real decks)</div>'
+      : '';
     const chipList = (label, arr) => arr.length
       ? '<div class="sig-row"><span class="sig-l">' + label + '</span>' + arr.map((n) => '<span class="badge">' + esc(n) + '</span>').join('') + '</div>' : '';
     return '<section class="panel report"><div class="panel-h">Deck doctor</div>' +
@@ -431,14 +448,15 @@ const UI = (() => {
       (r.feel !== r.bracket ? '<div class="dim">Rules floor is Bracket ' + r.bracket + ', but the power level plays closer to Bracket ' + r.feel + ' (' + feelInfo.name + ').</div>' : '<div class="dim">' + bracketInfo.blurb + '</div>') + '</div>' +
       (r.why.length ? '<ul class="why">' + r.why.map((w) => '<li>' + esc(w) + '</li>').join('') + '</ul>' : '') +
       '<div class="report-grid">' +
-      '<div><div class="panel-h sub">Composition vs baseline</div>' +
+      '<div><div class="panel-h sub">Composition vs baseline</div>' + compRef +
       compRow('Lands', 'lands') + compRow('Ramp', 'ramp') + compRow('Card draw', 'draw') + compRow('Removal', 'removal') + compRow('Board wipes', 'wipes') +
       '<div class="comp-row"><span>Average mana value</span><span class="comp-v">' + r.avgMv + '</span><span class="dim">nonland</span></div>' +
       '<div class="comp-row"><span>Cards</span><span class="comp-v">' + r.totalCards + '</span><span class="dim">100</span></div></div>' +
       '<div><div class="panel-h sub">Signals</div>' +
       chipList('Game Changers', r.gcs) + chipList('Fast mana', r.fast) + chipList('Free interaction', r.free) +
       chipList('Tutors', r.tutors.slice(0, 8)) + chipList('Extra turns', r.turns) + chipList('Mass land denial', r.mld) +
-      (r.combos.length ? '<div class="sig-row"><span class="sig-l">Combos</span>' + r.combos.map((p) => '<span class="badge ' + (p.mvSum <= 6 ? 'warn' : '') + '">' + esc(p.a + ' + ' + p.b) + '</span>').join('') + '</div>' : '') +
+      (r.combos.length ? '<div class="sig-row"><span class="sig-l">Combos</span>' + r.combos.map((p) => '<span class="badge ' + (Rules.comboIsFast(p) ? 'warn' : '') + '" title="' + esc(p.result || '') + '">' + esc(p.a + ' + ' + p.b) + '</span>').join('') + '</div>' : '') +
+      (r.triples && r.triples.length ? '<div class="sig-row"><span class="sig-l">3-card lines</span>' + r.triples.slice(0, 6).map((t) => '<span class="badge" title="' + esc(t.r || '') + '">' + esc(t.c.join(' + ')) + '</span>').join('') + '</div>' : '') +
       (r.archetypes.length ? '<div class="sig-row"><span class="sig-l">Archetypes</span>' + r.archetypes.map((a) => '<span class="badge gc">' + esc(a.name) + ' (' + a.hits + ')</span>').join('') + '</div>' : '') +
       (r.brainMatches && r.brainMatches.length ? '<div class="sig-row"><span class="sig-l">Decks like yours</span>' + r.brainMatches.map((m) => '<span class="badge">' + esc(m.name) + ' ' + Math.round(m.score * 100) + '% (' + m.decks + ' decks)</span>').join('') + '</div>' : '') +
       (r.similarDecks && r.similarDecks.length ? '<div class="sig-row"><span class="sig-l">Closest real decks</span>' + r.similarDecks.map((s) =>

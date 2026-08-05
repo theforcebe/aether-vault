@@ -211,8 +211,8 @@ const Builder = (() => {
         if (Rules.MLD.has(lower(c.n))) replace(i, 'mass land denial is Bracket 4 territory');
       }
       const names = new Set(cards.map((c) => lower(c.n)));
-      for (const p of Rules.COMBO_PAIRS) {
-        const isFast = p.mvSum <= 6;
+      for (const p of Rules.comboPairs()) {
+        const isFast = Rules.comboIsFast(p);
         if (bracket === 3 && !isFast) continue;
         if (!names.has(lower(p.a)) || !names.has(lower(p.b))) continue;
         const ia = cards.findIndex((c) => lower(c.n) === lower(p.a));

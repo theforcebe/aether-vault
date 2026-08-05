@@ -6,13 +6,12 @@ const App = (() => {
   // Heavy intelligence bundles load after first paint, or on demand.
   let dataPromise = null;
   function ensureData() {
-    if (window.VAULT_BRAIN !== undefined && window.VAULT_TEMPLATES !== undefined && window.VAULT_VECTORS !== undefined && window.VAULT_COMMANDERS !== undefined && dataPromise) return dataPromise;
     if (!dataPromise) {
-      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors'].map((f) => new Promise((res) => {
+      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors', 'combos', 'commanders-cards'].map((f) => new Promise((res) => {
         const s = document.createElement('script');
         s.src = 'data/' + f + '.js';
         s.onload = res;
-        s.onerror = res;
+        s.onerror = res; // optional bundles may not exist yet; the app runs without them
         document.head.appendChild(s);
       })));
     }

@@ -178,6 +178,38 @@ const Rules = (() => {
   };
 
   const set = (arr) => new Set(arr.map((n) => n.toLowerCase()));
+  // Combo knowledge: Commander Spellbook bake when loaded, curated list always.
+  // Spellbook bracket tags: R Ruthless, S Spicy, P Powerful, O Oddball,
+  // C Core, E Exhibition. R/S/P two-card combos read as Bracket 4 signals even
+  // when their mana sum is high; E/C are the widely accepted or janky ones.
+  let comboCache = null;
+  function comboPairs() {
+    const V = typeof window !== 'undefined' ? window.VAULT_COMBOS : null;
+    if (!V) return COMBO_PAIRS;
+    if (comboCache && comboCache.src === V) return comboCache.list;
+    const seen = new Set();
+    const list = [];
+    for (const p of COMBO_PAIRS) {
+      seen.add([p.a.toLowerCase(), p.b.toLowerCase()].sort().join('|'));
+      list.push(p);
+    }
+    for (const c of V.combos) {
+      if (c.c.length !== 2 || c.bt === 'B') continue;
+      const key = c.c.map((n) => n.toLowerCase()).sort().join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ a: c.c[0], b: c.c[1], result: c.r || 'a known combo', mvSum: c.mv || 99, tag: c.bt, pop: c.pop });
+    }
+    comboCache = { src: V, list };
+    return list;
+  }
+  function comboTriples() {
+    const V = typeof window !== 'undefined' ? window.VAULT_COMBOS : null;
+    if (!V) return [];
+    return V.combos.filter((c) => c.c.length === 3 && c.bt !== 'B');
+  }
+  const comboIsFast = (p) => (p.mvSum || 99) <= 6 || p.tag === 'R' || p.tag === 'S' || p.tag === 'P';
+
   return {
     GAME_CHANGERS, GC: set(GAME_CHANGERS),
     FAST_MANA, FAST: set(FAST_MANA),
@@ -185,7 +217,7 @@ const Rules = (() => {
     TUTOR_NAMES, TUTORS: set(TUTOR_NAMES),
     EXTRA_TURNS, TURNS: set(EXTRA_TURNS),
     MASS_LAND_DENIAL, MLD: set(MASS_LAND_DENIAL),
-    COMBO_PAIRS, BASELINES, BRACKETS, ARCHETYPES,
+    COMBO_PAIRS, comboPairs, comboTriples, comboIsFast, BASELINES, BRACKETS, ARCHETYPES,
     isLand, isRamp, isDraw, isRemoval, isWipe, genericTutor, GAP_SUGGESTIONS,
   };
 })();
