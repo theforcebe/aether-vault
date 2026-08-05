@@ -535,6 +535,10 @@ const UI = (() => {
   }
 
   function viewBuild(params) {
+    if (!window.VAULT_TEMPLATES) {
+      App.ensureData().then(() => App.refresh());
+      return '<div class="page-h"><h1>Deck builder</h1></div><p class="dim">Loading deck intelligence...</p>';
+    }
     const t = Builder.templates();
     if (!t.archetypes.length) return '<p class="dim">Deck templates failed to load.</p>';
     const all = Builder.allCommanders();
@@ -746,6 +750,7 @@ const UI = (() => {
           rkey = pkey;
         }
         try {
+          await App.ensureData();
           let r = reports[rkey];
           if (!r) {
             r = await Analyze.run({ cards: dv.cards, ci: dv.ci }, () => {});
@@ -843,6 +848,7 @@ const UI = (() => {
       an.disabled = true;
       const orig = an.textContent;
       try {
+        await App.ensureData();
         const r = await Analyze.run(deck, (d, t) => { an.textContent = 'Reading ' + d + '/' + t; });
         reports[key] = r;
         App.refresh();

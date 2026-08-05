@@ -2,6 +2,22 @@
 
 const App = (() => {
   const root = () => document.getElementById('view');
+
+  // Heavy intelligence bundles load after first paint, or on demand.
+  let dataPromise = null;
+  function ensureData() {
+    if (window.VAULT_BRAIN !== undefined && window.VAULT_TEMPLATES !== undefined && window.VAULT_VECTORS !== undefined && window.VAULT_COMMANDERS !== undefined && dataPromise) return dataPromise;
+    if (!dataPromise) {
+      dataPromise = Promise.all(['templates', 'brain', 'commanders', 'vectors'].map((f) => new Promise((res) => {
+        const s = document.createElement('script');
+        s.src = 'data/' + f + '.js';
+        s.onload = res;
+        s.onerror = res;
+        document.head.appendChild(s);
+      })));
+    }
+    return dataPromise;
+  }
   let remindedThisSession = false;
 
   function parseHash() {
@@ -124,10 +140,11 @@ const App = (() => {
 
     render();
     heal();
+    (window.requestIdleCallback || setTimeout)(() => ensureData().then(() => { const p = parseHash().path; if (p === '#/build' || p === '#/guide') render(); }), 1200);
     setInterval(() => { try { Sync.autosyncTick(); } catch (e) { /* quiet */ } }, 5000);
   }
 
-  return { boot, render, refresh: render, go };
+  return { boot, render, refresh: render, go, ensureData };
 })();
 
 document.addEventListener('DOMContentLoaded', App.boot);
