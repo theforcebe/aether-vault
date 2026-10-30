@@ -6,6 +6,7 @@
 // Everything user-generated lives in localStorage and exports as one backup file.
 
 const Store = (() => {
+  const P=window.Printings;
   const LS = {
     prices: 'av_prices',
     prev: 'av_prices_prev',
@@ -98,24 +99,31 @@ const Store = (() => {
 
   // ---------- prices ----------
   function priceEntry(sid) { return sid ? state.prices[sid] || null : null; }
-  function unitPrice(n, sid, foil) {
-    const p = priceEntry(sid);
-    if (p) {
-      if (foil === 'foil') return p.usd_foil ?? p.usd ?? 0;
-      if (foil === 'etched') return p.usd_etched ?? p.usd_foil ?? p.usd ?? 0;
-      return p.usd ?? p.usd_foil ?? 0;
+  function knownCardValue(n, sid, finish = 'normal') {
+    sid = sid || sidFor(n);
+    const cached=priceEntry(sid), resolved=state.resolved[(n || '').toLowerCase()], baked=card(n);
+    // A missing finish is unknown, never the price of a different finish or printing.
+    const source=cached || (resolved?.sid===sid ? resolved : null) || (baked?.sid===sid ? baked : null);
+    const cents=P.cents(source,finish);return cents==null ? null : cents/100;
+  }
+  function knownDeckCardValue(c) {
+    return 'printing' in c && !c.printing ? null : knownCardValue(c.n,c.printing?.id || c.sid,c.printing?.finish);
+  }
+  function cachePrintingFacts(cards) {
+    let changed=false;
+    for(const f of cards){
+      if(!f.id || !f.prices)continue;
+      const previous=state.prices[f.id], oldDate=previous?._fetchedAt || (previous?state.prices._ts:null);
+      if(previous && oldDate && new Date(oldDate).getTime()>Date.parse(f._fetchedAt))continue;
+      const p={id:f.id,set:f.set,set_name:f.set_name,collector_number:f.collector_number,full_art:f.full_art,border_color:f.border_color,frame:f.frame,frame_effects:f.frame_effects,promo_types:f.promo_types,textless:f.textless,_fetchedAt:f._fetchedAt};
+      for(const [finish,field] of [['normal','usd'],['foil','usd_foil'],['etched','usd_etched']]){const cents=P.cents(f,finish);p[field]=cents==null?null:cents/100;}
+      state.prices[f.id]=p;changed=true;
     }
-    const res = state.resolved[(n || '').toLowerCase()];
-    if (res && (res.usd != null || res.usd_foil != null)) return (foil ? res.usd_foil ?? res.usd : res.usd ?? res.usd_foil) ?? 0;
-    const c = card(n);
-    return c && c.usd != null ? c.usd : 0;
+    if(changed)save(LS.prices,state.prices);
   }
+  function unitPrice(n, sid, finish) { return knownCardValue(n,sid,finish) ?? 0; }
   function rowValue(r) { return unitPrice(r.n, r.sid, r.f) * r.q; }
-  function knownCardValue(n, sid) {
-    const p=priceEntry(sid || sidFor(n)), r=state.resolved[(n || '').toLowerCase()], c=card(n);
-    return p?.usd ?? p?.usd_foil ?? r?.usd ?? r?.usd_foil ?? c?.usd ?? null;
-  }
-  function cardValue(n, sid) { return unitPrice(n, sid, ''); }
+  function cardValue(n, sid, finish) { return unitPrice(n, sid, finish); }
   function collectionTotal() { return rows().reduce((s, r) => s + rowValue(r), 0); }
 
   // whole-collection movement: every card's change vs its first-seen price,
@@ -285,8 +293,8 @@ const Store = (() => {
       name: name || 'New deck',
       format: options.format || 'commander',
       commander: options.format && options.format!=='commander' ? '' : commander || '',
-      sideboard: (options.sideboard || []).map(c=>({ n:c.n, q:c.q, sid:c.sid || sidFor(c.n) })),
-      cards: (cards || []).map((c) => ({ n: c.n, q: c.q, sid: c.sid || sidFor(c.n) })),
+      sideboard: (options.sideboard || []).map(c=>({ n:c.n, q:c.q, sid:c.printing?.id || c.sid || sidFor(c.n), ...('printing' in c?{printing:c.printing?P.selection(c.printing):null}:{}) })),
+      cards: (cards || []).map((c) => ({ n: c.n, q: c.q, sid: c.printing?.id || c.sid || sidFor(c.n), ...('printing' in c?{printing:c.printing?P.selection(c.printing):null}:{}) })),
       created: new Date().toISOString(),
     };
     state.userdecks.push(d);
@@ -300,20 +308,20 @@ const Store = (() => {
     d.format=format; if(format!=='commander')d.commander=''; saveUserDecks();
   }
   function setUserCommander(id, n) { const d = userDeck(id); if (d) { d.commander = n; saveUserDecks(); } }
-  function addToUserDeck(id, n, q, zone = 'main') {
+  function addToUserDeck(id, n, q, zone = 'main', printing = null) {
     const d = userDeck(id);
     if (!d) return;
     const cards = zone==='sideboard' ? (d.sideboard ||= []) : d.cards;
-    const i = cards.findIndex((c) => norm(c.n) === norm(n));
+    const i = cards.findIndex((c) => norm(c.n) === norm(n) && (printing===undefined || P.key(c.printing)===P.key(printing)));
     if (i >= 0) cards[i].q += q || 1;
-    else cards.push({ n, q: q || 1, sid: sidFor(n) });
+    else cards.push({ n, q: q || 1, sid: printing?.id || sidFor(n), ...(printing?{printing:P.selection(printing)}:{}) });
     saveUserDecks();
   }
-  function setUserQty(id, n, q, zone = 'main') {
+  function setUserQty(id, n, q, zone = 'main', printing) {
     const d = userDeck(id);
     if (!d) return;
     const cards = zone==='sideboard' ? (d.sideboard ||= []) : d.cards;
-    const i = cards.findIndex((c) => norm(c.n) === norm(n));
+    const i = cards.findIndex((c) => norm(c.n) === norm(n) && (printing===undefined || P.key(c.printing)===P.key(printing)));
     if (i < 0) return;
     if (q <= 0) cards.splice(i, 1);
     else cards[i].q = q;
@@ -321,7 +329,7 @@ const Store = (() => {
   }
   function userDeckTotal(id) {
     const d = userDeck(id);
-    return d ? deckCards(d).reduce((s, c) => s + cardValue(c.n, c.sid || sidFor(c.n)) * c.q, 0) : 0;
+    return d ? deckCards(d).reduce((s, c) => s + (knownDeckCardValue(c) ?? 0) * c.q, 0) : 0;
   }
   function deckView(id) {
     const d = userDeck(id);
@@ -469,9 +477,9 @@ const Store = (() => {
     const cs = [];
     for (const r of rows()) {
       if (r.b !== binderName) continue;
-      const existing = cs.find((c) => norm(c.n) === norm(r.n));
+      const existing = cs.find((c) => norm(c.n) === norm(r.n) && P.key(c.printing)===P.key(r));
       if (existing) existing.q += r.q;
-      else cs.push({ n: r.n, q: r.q, sid: r.sid });
+      else cs.push({ n: r.n, q: r.q, sid: r.sid, printing:P.selection(r) });
     }
     if (!cs.length) return null;
     return createUserDeck(binderName, cs, '');
@@ -505,16 +513,16 @@ const Store = (() => {
     if (!Object.keys(state.prev).length) return out;
     const seen = new Set();
     for (const r of rows()) {
-      if (!r.sid || seen.has(r.sid)) continue;
-      seen.add(r.sid);
+      if (!r.sid || seen.has(P.key(r))) continue;
+      seen.add(P.key(r));
       const a = state.prev[r.sid], b = state.prices[r.sid];
       if (!a || !b) continue;
-      const pa = r.f ? (a.usd_foil ?? a.usd) : (a.usd ?? a.usd_foil);
-      const pb = r.f ? (b.usd_foil ?? b.usd) : (b.usd ?? b.usd_foil);
+      const ac=P.cents(a,r.f), pa=ac==null?null:ac/100;
+      const bc=P.cents(b,r.f), pb=bc==null?null:bc/100;
       if (pa == null || pb == null) continue;
       const d = pb - pa;
       if (Math.abs(d) < 0.01) continue;
-      out.push({ n: r.n, sid: r.sid, from: pa, to: pb, delta: d });
+      out.push({ n: r.n, sid: r.sid, printing:P.selection(r), from: pa, to: pb, delta: d });
     }
     out.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
     return out.slice(0, limit || 12);
@@ -522,8 +530,8 @@ const Store = (() => {
   function topHoldings(limit) {
     const agg = {};
     for (const r of rows()) {
-      const k = norm(r.n) + '|' + (r.f || '');
-      agg[k] ||= { n: r.n, sid: r.sid, q: 0, f: r.f, unit: unitPrice(r.n, r.sid, r.f) };
+      const k = norm(r.n) + '|' + P.key(r);
+      agg[k] ||= { n: r.n, sid: r.sid, printing:P.selection(r), q: 0, f: r.f, unit: unitPrice(r.n, r.sid, r.f) };
       agg[k].q += r.q;
     }
     return Object.values(agg).map((a) => ({ ...a, total: a.unit * a.q }))
@@ -649,7 +657,7 @@ const Store = (() => {
   return {
     state, norm, card, sidFor,
     rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
-    unitPrice, rowValue, cardValue, knownCardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, collectorTitle, ownsName,
+    unitPrice, rowValue, cardValue, knownCardValue, knownDeckCardValue, cachePrintingFacts, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, collectorTitle, ownsName,
     userDeck, deckFormat, deckCards, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander, setUserFormat,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,

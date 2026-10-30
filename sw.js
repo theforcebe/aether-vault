@@ -5,14 +5,14 @@
 // Card images: cache-first with a size cap. APIs (Scryfall search/collection,
 // GitHub sync, EDHREC) are never intercepted; sync must always hit the network.
 
-const BUILD = '19';
+const BUILD = '20';
 const VERSION = 'av-v' + BUILD;
 const APP_CACHE = VERSION + '-app';
 const IMG_CACHE = VERSION + '-img';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css?v=' + BUILD, 'css/workbench.css?v=' + BUILD,
-  ...['scryfall', 'rules', 'vector', 'analyze', 'builder', 'pilot', 'store', 'sync', 'ui', 'workbench-core', 'workbench', 'app'].map((f) => 'js/' + f + '.js?v=' + BUILD),
+  ...['printings', 'scryfall', 'rules', 'vector', 'analyze', 'builder', 'pilot', 'store', 'sync', 'ui', 'workbench-core', 'workbench', 'app'].map((f) => 'js/' + f + '.js?v=' + BUILD),
   ...['collection', 'cards', 'decks', 'manifest'].map((f) => 'data/' + f + '.js?v=' + BUILD),
 ];
 

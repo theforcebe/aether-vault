@@ -74,7 +74,7 @@ test('Workbench assets and route are included in the service worker and private 
   assert.ok(html.includes('css/workbench.css')&&sw.includes('css/workbench.css'));assert.ok(sw.includes("url.pathname.startsWith('/api/')"));assert.ok(app.includes('Workbench.mount(el)'));
 });
 test('Workbench backup roundtrip validates drafts and rejects corrupt quantities and collection records',()=>{
-  const vm=require('node:vm'),ctx={window:{WorkbenchCore:C},localStorage:{getItem:()=>null}};vm.createContext(ctx);
+  const vm=require('node:vm'),ctx={window:{Printings:require('../js/printings'),WorkbenchCore:C},localStorage:{getItem:()=>null}};vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/workbench.js'),'utf8')+';this.WB=Workbench;',ctx);
   const backup={app:'aether-workbench',version:1,active:'test',drafts:[{id:'test',name:'Test',format:'commander',cards:[{n:'Sol Ring',q:1,zone:'main'}]}],custom:{snapshot,ledger}};
   assert.doesNotThrow(()=>ctx.WB.validateBackup(JSON.parse(JSON.stringify(backup))));

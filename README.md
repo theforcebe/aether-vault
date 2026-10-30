@@ -66,6 +66,32 @@ separate copies. Existing Decks backups and configured sync include the saved fo
 and sideboard. A browser origin has its own storage: use backups to transfer data
 between GitHub Pages and localhost.
 
+## Card versions and prices
+
+Collection shows each printing and finish separately, with its set, collector
+number, foil/non-foil/etched finish, matching art, and unit price. Set and finish
+filters also constrain quantities. Full set names and treatment labels (such as
+borderless or showcase) appear when printing metadata is available; Refresh prices
+retrieves it. Clicking a Collection row opens that exact printing.
+
+In Workbench, click **owned versions · choose** or a deck entry. Select a version
+to preview its art, finish-specific price/history, owned quantity, and binders.
+Adding or dragging a binder card keeps the displayed version. For an existing deck
+entry, **Use for these copies** saves the choice; changing only part of its quantity
+splits the entry so foil and non-foil copies can coexist. Undo, browser persistence,
+Workbench JSON backups, and copies to/from Decks retain those selections. Plain text
+decklists describe playable cards; use JSON backups to transfer exact selections.
+Older and imported decklists remain explicitly unassigned until a version is chosen.
+
+**Collection check → Exact selected versions** values the saved printings and
+estimates the cost of versions not owned, including Standard sideboards. Owned counts
+include protected decks. The separate playable-copy check respects allocations and
+quotes cheapest paper printings, which may differ from the chosen versions.
+**Refresh selected-version prices** fetches current data for selected printing IDs.
+Missing finish prices remain **Unknown**; they never fall back to another finish
+or another printing. USD references exclude condition, language premiums, shipping,
+tax, and stock verification. Draft selections do not reserve or move physical cards.
+
 ## Privacy and checks
 
 `knowledge/collection`, `knowledge/cache`, `knowledge/quotes`, and `knowledge/reviews`
@@ -78,6 +104,7 @@ node test.js
 node tools/mtg.test.js
 node tools/workbench.test.js
 node tools/standard.test.js
+node tools/printings.test.js
 ```
 
 Responsive QA covers 320, 390, 768, and 1440 pixel widths, with separate list prices,

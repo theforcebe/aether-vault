@@ -56,7 +56,7 @@ test('Commented export sections retain commanders and sideboard; combo payload o
   assert.equal(url.origin,'https://commanderspellbook.com');assert.equal(url.searchParams.get('decklist'),'1 Front // Back');assert.equal(url.searchParams.get('commanders'),'1 Godo, Bandit Warlord');
 });
 test('Stored Standard decks preserve sideboard through edits and backup, while legacy decks default to Commander',()=>{
-  const memory={},ctx=vm.createContext({window:{},localStorage:{getItem:k=>memory[k]||null,setItem:(k,v)=>{memory[k]=v;},removeItem:k=>{delete memory[k];}},console,setTimeout});
+  const memory={},ctx=vm.createContext({window:{Printings:require('../js/printings')},localStorage:{getItem:k=>memory[k]||null,setItem:(k,v)=>{memory[k]=v;},removeItem:k=>{delete memory[k];}},console,setTimeout});
   vm.runInContext(fs.readFileSync(require.resolve('../js/store.js'),'utf8')+'\nglobalThis.Store=Store;',ctx);
   const S=ctx.Store, d=S.createUserDeck('Standard',[{n:'Spell',q:3}],'',{format:'standard',sideboard:[{n:'Spell',q:1}]});
   S.addToUserDeck(d.id,'Spell',1,'sideboard');assert.equal(d.cards[0].q,3);assert.equal(d.sideboard[0].q,2);

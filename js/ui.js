@@ -1,6 +1,7 @@
 // Aether Vault: rendering and interaction. v3.
 
 const UI = (() => {
+  const P=window.Printings;
   const $ = (sel, el) => (el || document).querySelector(sel);
   const $$ = (sel, el) => [...(el || document).querySelectorAll(sel)];
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -11,6 +12,14 @@ const UI = (() => {
   let dragCard = null;
   const reports = {}; // deckId -> analysis result (session memory)
 
+  const versionAttr = p => ' data-printing="'+esc(JSON.stringify(p || null))+'"';
+  function elementPrinting(el) { try{return JSON.parse(el?.closest('[data-printing]')?.dataset.printing || 'null');}catch(_){return null;} }
+  function versionHtml(p) {
+    if(!p)return '<small class="printing-label">Version not selected</small>';
+    const f=Store.state.prices[p.id], m=P.metadata(p,f);
+    const setName=m.setName || window.VAULT_SETS?.sets.find(s=>s.c.toUpperCase()===p.set)?.n || '';
+    return '<span class="printing-label"><span>'+esc(setName || p.set || 'Unknown set')+'</span><span class="printing-details">'+esc([setName?p.set:'',p.collectorNumber?'#'+p.collectorNumber:'',P.finishLabel(p.finish)].filter(Boolean).join(' · '))+'</span>'+ (m.styles.length?'<span class="printing-style">'+esc(m.styles.join(' · '))+'</span>':'')+'</span>';
+  }
   // ---------- primitives ----------
   function pips(ci) {
     if (!ci) return '';
@@ -114,11 +123,11 @@ const UI = (() => {
     });
   }
 
-  function moveSheet(cardName, fromKey) {
+  function moveSheet(cardName, fromKey, printing) {
     const opts = [];
     for (const ref of Store.allDeckRefs()) {
       if (ref.key === fromKey) continue;
-      opts.push({ label: 'Add to ' + ref.name, cb: () => { Store.addToUserDeck(ref.key, cardName, 1); Store.addMove(cardName, fromKey, ref.key); toast('Added, and logged in Moves.'); App.refresh(); } });
+      opts.push({ label: 'Add to ' + ref.name, cb: () => { Store.addToUserDeck(ref.key, cardName, 1, 'main', printing); Store.addMove(cardName, fromKey, ref.key); toast('Added, and logged in Moves.'); App.refresh(); } });
     }
     if (fromKey !== 'collection') opts.push({ label: 'Log move back to collection', cb: () => { Store.addMove(cardName, fromKey, 'collection'); toast('Logged in Moves.'); App.refresh(); } });
     if (!opts.length) opts.push({ label: 'Create a deck first (Decks page)', cb: () => { location.hash = '#/decks'; } });
@@ -226,14 +235,14 @@ const UI = (() => {
 
     const mv = Store.movers(8);
     const moversHtml = mv.length
-      ? mv.map((m) => '<div class="mover" data-hover-sid="' + m.sid + '"><span>' + esc(m.n) + '</span>' +
+      ? mv.map((m) => '<div class="mover" data-hover-sid="' + m.sid + '"><span>' + esc(m.n) + versionHtml(m.printing) + '</span>' +
         '<span class="' + (m.delta > 0 ? 'up' : 'down') + '">' + (m.delta > 0 ? '+' : '') + m.delta.toFixed(2) + '</span></div>').join('')
       : '<div class="dim">Movement appears after two price refreshes on different days.</div>';
     const holdings = Store.topHoldings(8).map((h) => {
       const tick = tickerHtml(h.n, h.sid, h.f);
       return '<div class="hold-row" data-hover-sid="' + (h.sid || '') + '">' + thumb(h.sid) +
         '<span class="hold-n">' + esc(h.n) +
-        (h.f ? ' <span class="badge">' + h.f + '</span>' : '') +
+        versionHtml(h.printing) +
         ' <span class="dim">x' + h.q + '</span></span>' +
         '<span class="hold-v">' + money(h.total) + (tick ? '<br>' + tick : '') + '</span></div>';
     }).join('');
@@ -287,13 +296,10 @@ const UI = (() => {
     const deckMap = Store.deckOf();
     const agg = {};
     for (const r of Store.rows()) {
-      const k = Store.norm(r.n);
-      agg[k] ||= { n: r.n, q: 0, sid: r.sid, b: new Set(), foil: false, sets: new Set() };
-      agg[k].q += r.q;
-      agg[k].b.add(r.b);
-      agg[k].sets.add(r.s);
-      if (r.f) agg[k].foil = true;
-      if (!agg[k].sid && r.sid) agg[k].sid = r.sid;
+      if(binder && r.b!==binder || params.set && r.s!==params.set || params.finish && P.finish(r.f)!==params.finish)continue;
+      const k=Store.norm(r.n)+'|'+P.key(r), printing=P.selection(r);
+      agg[k] ||= {n:r.n,q:0,sid:r.sid,printing,b:new Set()};
+      agg[k].q+=r.q;agg[k].b.add(r.b);
     }
     let items = Object.values(agg).filter((it) => {
       if (q && !it.n.toLowerCase().includes(q)) return false;
@@ -306,7 +312,7 @@ const UI = (() => {
       if (binder && ![...it.b].includes(binder)) return false;
       return true;
     });
-    const val = (it) => Store.cardValue(it.n, it.sid);
+    const val = (it) => Store.knownCardValue(it.n, it.sid, it.printing?.finish);
     if (sort === 'price') items.sort((a, b) => val(b) - val(a));
     else if (sort === 'qty') items.sort((a, b) => b.q - a.q);
     else items.sort((a, b) => a.n.localeCompare(b.n));
@@ -316,25 +322,21 @@ const UI = (() => {
       const inDecks = deckMap[Store.norm(it.n)] || [];
       return inDecks.length ? '<div class="c-decks">' + inDecks.slice(0, 3).map((d) => '<span class="badge">' + esc(d) + '</span>').join('') + '</div>' : '';
     };
-    let body = '';
-    if (mode === 'list') {
-      body = '<div class="list-head"><span></span><span>Name</span><span>Sets</span><span class="ra">Qty</span><span class="ra">Price</span><span></span></div>' +
-        shown.map((it) => '<div class="list-row" data-card="' + esc(it.n) + '" data-hover-sid="' + (it.sid || '') + '">' +
-          thumb(it.sid) +
-          '<button class="list-n" data-modal="' + esc(it.n) + '">' + esc(it.n) + (it.foil ? ' <span class="badge">foil</span>' : '') + '</button>' +
-          '<span class="dim list-sets">' + [...it.sets].slice(0, 3).join(', ') + '</span>' +
-          '<span class="ra dim list-qty">x' + it.q + '</span><span class="ra list-p"><span class="list-value">' + money(val(it)) + '</span>' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</span>' +
-          '<button class="btn small m-act" data-move="' + esc(it.n) + '" aria-label="Add ' + esc(it.n) + ' to a deck">Add</button></div>').join('');
+    const priceText=it=>val(it)==null?'Unknown':money(val(it));
+    const ticker=it=>tickerHtml(it.n,it.sid,it.printing?.finish==='normal'?'':it.printing?.finish);
+    const attrs=it=>' data-card="'+esc(it.n)+'" data-sid="'+esc(it.sid || '')+'"'+versionAttr(it.printing);
+    let body='';
+    if(mode==='list') {
+      body='<div class="list-head"><span></span><span>Name</span><span>Version</span><span class="ra">Qty</span><span class="ra">Each</span><span></span></div>'+shown.map(it=>
+        '<div class="list-row"'+attrs(it)+' data-hover-sid="'+esc(it.sid || '')+'">'+thumb(it.sid)+
+        '<button class="list-n" data-modal="'+esc(it.n)+'">'+esc(it.n)+'</button><span class="list-sets">'+versionHtml(it.printing)+'</span>'+
+        '<span class="ra dim list-qty">×'+it.q+'</span><span class="ra list-p"><span class="list-value">'+priceText(it)+'</span>'+ticker(it)+'</span>'+
+        '<button class="btn small m-act" data-move="'+esc(it.n)+'" aria-label="Add '+esc(it.n)+' to a deck">Add</button></div>').join('');
     } else {
-      body = '<div class="col-grid">' + shown.map((it) =>
-        '<div class="c-card" draggable="true" data-card="' + esc(it.n) + '" data-sid="' + (it.sid || '') + '">' +
-        cardImgHtml(it.n, it.sid) +
-        '<div class="c-meta"><span class="c-qty">x' + it.q + '</span>' +
-        (it.foil ? '<span class="c-foil">foil</span>' : '') +
-        '<span class="c-price">' + money(val(it)) + '</span>' +
-        '<button class="m-act icon" data-move="' + esc(it.n) + '" title="Add to a deck" aria-label="Add ' + esc(it.n) + ' to a deck">&#8942;</button></div>' +
-        (tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') ? '<div class="c-tick">' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</div>' : '') +
-        badgeRow(it) + '</div>').join('') + '</div>';
+      body='<div class="col-grid">'+shown.map(it=>'<div class="c-card" draggable="true"'+attrs(it)+'>'+cardImgHtml(it.n,it.sid)+
+        '<div class="c-edition"><strong>'+esc(it.n)+'</strong>'+versionHtml(it.printing)+'</div><div class="c-meta"><span class="c-qty">×'+it.q+'</span><span class="c-price">'+priceText(it)+'<small> each</small></span>'+
+        '<button class="m-act icon" data-move="'+esc(it.n)+'" aria-label="Add '+esc(it.n)+' to a deck">&#8942;</button></div>'+
+        (ticker(it)?'<div class="c-tick">'+ticker(it)+'</div>':'')+badgeRow(it)+'</div>').join('')+'</div>';
     }
     const sel = (name, opts, cur, label) =>
       '<select data-filter="' + name + '"><option value="">' + label + '</option>' +
@@ -345,16 +347,18 @@ const UI = (() => {
       sel('color', ['W', 'U', 'B', 'R', 'G', 'C'], color, 'Color') +
       sel('type', ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'], type, 'Type') +
       sel('binder', binders, binder, 'Binder') +
+      sel('set', [...new Set(Store.rows().map(r=>r.s).filter(Boolean))].sort(), params.set, 'Every set') +
+      '<select data-filter="finish" aria-label="Finish"><option value="">Every finish</option>'+['normal','foil','etched'].map(f=>'<option value="'+f+'"'+(params.finish===f?' selected':'')+'>'+P.finishLabel(f)+'</option>').join('')+'</select>' +
       sel('sort', ['name', 'price', 'qty'], sort, 'Sort') +
       '<div class="seg"><button class="seg-b ' + (mode === 'grid' ? 'on' : '') + '" data-mode="grid">Grid</button><button class="seg-b ' + (mode === 'list' ? 'on' : '') + '" data-mode="list">List</button></div>' +
-      '<span class="dim">' + items.length.toLocaleString() + ' results</span>' +
+      '<span class="dim">' + items.length.toLocaleString() + ' versions</span>' +
       (binder ? '<button class="btn small" id="binder-to-deck" data-binder="' + esc(binder) + '">Import binder as deck</button>' : '') +
       '</div>' + body +
       (items.length > show ? '<div class="show-more"><button class="btn" id="show-more" data-next="' + (show + 600) + '">Show ' + Math.min(600, items.length - show) + ' more</button></div>' : '');
   }
 
   function deckEstimate(cards) {
-    let total=0,unknown=0;for(const c of cards){const p=Store.knownCardValue(c.n,c.sid);if(p==null)unknown+=c.q;else total+=p*c.q;}
+    let total=0,unknown=0;for(const c of cards){const p=Store.knownDeckCardValue(c);if(p==null)unknown+=c.q;else total+=p*c.q;}
     return unknown ? money(total)+' known · '+unknown+' unpriced' : money(total);
   }
   function viewDecks() {
@@ -365,7 +369,7 @@ const UI = (() => {
         cardImgHtml(dv.name, dv.commanderSid, 'tile-art') +
         '<div class="tile-body"><div class="tile-name">' + esc(dv.name) + '</div>' +
         '<div class="tile-sub">' + esc(dv.sub) + ' ' + pips(dv.ci) + '</div>' +
-        '<div class="tile-price">' + (dv.format==='standard'?deckEstimate(Store.deckCards(dv)):money(Store.userDeckTotal(r.key))) + '</div></div></a>';
+        '<div class="tile-price">' + deckEstimate(Store.deckCards(dv)) + '</div></div></a>';
     }).join('');
     let sess = '';
     for (const s of Store.state.sessions) {
@@ -415,7 +419,7 @@ const UI = (() => {
         let stack = '';
         for (const c of list) {
           const sid = c.sid || Store.sidFor(c.n);
-          stack += '<div class="stackcard" data-modal="' + esc(c.n) + '" role="button" tabindex="0" aria-label="' + esc(c.n) + '">' +
+          stack += '<div class="stackcard"'+versionAttr(c.printing)+' data-modal="' + esc(c.n) + '" role="button" tabindex="0" aria-label="' + esc(c.n) + '">' +
             (sid ? '<img loading="lazy" alt="" src="' + Scry.img(sid, 'normal') + '">' : '<div class="stack-noart">' + esc(c.n) + '</div>') +
             (c.q > 1 ? '<span class="stack-q">x' + c.q + '</span>' : '') + '</div>';
         }
@@ -432,15 +436,15 @@ const UI = (() => {
       for (const c of list) {
         const sid = c.sid || Store.sidFor(c.n);
         const warn = o.ci ? (() => { const f = Store.card(c.n); return f && [...(f.ci || '')].some((x) => !o.ci.includes(x)); })() : false;
-        rowsH += '<div class="d-row" data-zone="'+(o.zone || 'main')+'" draggable="true" data-card="' + esc(c.n) + '" data-hover-sid="' + (sid || '') + '">' +
+        rowsH += '<div class="d-row"'+versionAttr(c.printing)+' data-zone="'+(o.zone || 'main')+'" draggable="true" data-card="' + esc(c.n) + '" data-hover-sid="' + (sid || '') + '">' +
           (o.editable
             ? '<span class="qty-ctl"><button class="qb" data-dec="' + esc(c.n) + '" aria-label="One fewer ' + esc(c.n) + '">&minus;</button><span class="d-q">' + c.q + '</span><button class="qb" data-inc="' + esc(c.n) + '" aria-label="One more ' + esc(c.n) + '">+</button></span>'
             : '<span class="d-q">' + c.q + '</span>') +
-          '<span class="d-n"><span data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
+          '<span class="d-n"><span data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' + ('printing' in c?versionHtml(c.printing):'') +
           (warn ? ' <span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
           (o.showNeed && !/^(plains|island|swamp|mountain|forest|wastes|snow-covered)/i.test(c.n) && (!Store.byName[Store.norm(c.n)] || Store.byName[Store.norm(c.n)].qty < (o.required || cards).filter(x=>Store.norm(x.n)===Store.norm(c.n)).reduce((sum,x)=>sum+x.q,0))
             ? ' <button class="btn small buy-b" data-bought="' + esc(c.n) + '">Bought</button>' : '') + '</span>' +
-          '<span class="d-p">' + (o.standard && Store.knownCardValue(c.n,sid)==null?'Unknown':money(Store.cardValue(c.n, sid) * c.q)) + tickerHtml(c.n, sid, '') + '</span>' +
+          '<span class="d-p">' + (Store.knownDeckCardValue(c)==null?'Unknown':money(Store.knownDeckCardValue(c)*c.q)) + (Store.knownDeckCardValue(c)==null?'':tickerHtml(c.n,sid,c.printing?.finish==='normal'?'':c.printing?.finish)) + '</span>' +
           (o.editable
             ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove" aria-label="Remove ' + esc(c.n) + '">&times;</button>'
             : '<button class="m-act icon" data-move="' + esc(c.n) + '" title="Add to a deck" aria-label="Add ' + esc(c.n) + ' to a deck">&#8942;</button>') +
@@ -552,7 +556,7 @@ const UI = (() => {
       cardImgHtml(dv.name, dv.commanderSid, 'deck-art') +
       '<div class="deck-info"><h1>' + esc(dv.name) + '</h1>' +
       '<div class="tile-sub">' + esc(dv.sub) + ' ' + pips(dv.ci) + '</div>' +
-      '<div class="deck-stats"><span>' + total + ' cards</span><span>' + (dv.format==='standard'?deckEstimate(Store.deckCards(dv)):money(value)) + '</span>' +
+      '<div class="deck-stats"><span>' + total + ' cards</span><span>' + deckEstimate(Store.deckCards(dv)) + '</span>' +
       (dv.format==='standard' ? (deckId.startsWith('session:') ? '' : '<button class="btn small primary" id="check-standard">Refresh Standard legality</button>') : '<button class="btn small primary" id="analyze" data-deck="' + deckId + '">Analyze deck</button>')+'</div>' +
       (extra || '') + '</div>' +
       '<div class="deck-charts">' + curveChart(cards) + pipDonut(cards) + '</div></div>';
@@ -1286,8 +1290,8 @@ const UI = (() => {
         const wb = slot.querySelector('[data-setwant]');
         if (wb) wb.addEventListener('click', () => dl(code.toLowerCase() + '-wantlist.txt', missing.map((c) => '1 ' + c.n).join('\n')));
         slot.querySelectorAll('[data-modal]').forEach((el) => {
-          el.addEventListener('click', (ev) => { ev.stopPropagation(); openModal(el.getAttribute('data-modal')); });
-          el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openModal(el.getAttribute('data-modal')); } });
+          el.addEventListener('click', (ev) => { ev.stopPropagation(); openModal(el.getAttribute('data-modal'),elementPrinting(el)); });
+          el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openModal(el.getAttribute('data-modal'),elementPrinting(el)); } });
         });
       } catch (e) {
         slot.innerHTML = '<div class="dim">Could not reach Scryfall (' + esc(e.message || 'network') + '). Try again.</div>';
@@ -1357,12 +1361,12 @@ const UI = (() => {
       e.stopPropagation();
       e.preventDefault();
       const from = route.startsWith('#/mydeck/') ? route.split('/')[2] : 'collection';
-      moveSheet(b.getAttribute('data-move'), from);
+      moveSheet(b.getAttribute('data-move'), from,elementPrinting(b));
     }));
 
     $$('[draggable="true"]', root).forEach((el) => {
       el.addEventListener('dragstart', () => {
-        dragCard = { n: el.getAttribute('data-card'), from: route.startsWith('#/mydeck/') ? route.split('/')[2] : 'collection' };
+        dragCard = { n: el.getAttribute('data-card'), printing:elementPrinting(el), from: route.startsWith('#/mydeck/') ? route.split('/')[2] : 'collection' };
         el.classList.add('dragging');
       });
       el.addEventListener('dragend', () => el.classList.remove('dragging'));
@@ -1375,7 +1379,7 @@ const UI = (() => {
         el.classList.remove('over');
         if (!dragCard) return;
         const key = el.getAttribute('data-deckdrop');
-        Store.addToUserDeck(key, dragCard.n, 1);
+        Store.addToUserDeck(key, dragCard.n, 1, 'main',dragCard.printing);
         Store.addMove(dragCard.n, dragCard.from, key);
         toast(dragCard.n + ' added to ' + Store.deckNameFor(key) + '.');
         dragCard = null;
@@ -1533,15 +1537,15 @@ const UI = (() => {
           btn.textContent = 'Added';
         }));
       });
-      $$('[data-inc]', root).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-inc'), 1, b.closest('[data-zone]')?.dataset.zone); App.refresh(); }));
+      $$('[data-inc]', root).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-inc'), 1, b.closest('[data-zone]')?.dataset.zone,elementPrinting(b)); App.refresh(); }));
       $$('[data-dec]', root).forEach((b) => b.addEventListener('click', () => {
         const n = b.getAttribute('data-dec');
         const d = Store.userDeck(id);
         const zone=b.closest('[data-zone]')?.dataset.zone || 'main';
-        const c = (zone==='sideboard'?d.sideboard || []:d.cards).find((x) => Store.norm(x.n) === Store.norm(n));
-        Store.setUserQty(id, n, (c ? c.q : 1) - 1, zone); App.refresh();
+        const c = (zone==='sideboard'?d.sideboard || []:d.cards).find((x) => Store.norm(x.n) === Store.norm(n) && P.key(x.printing)===P.key(elementPrinting(b)));
+        Store.setUserQty(id, n, (c ? c.q : 1) - 1, zone,elementPrinting(b)); App.refresh();
       }));
-      $$('[data-remove]', root).forEach((b) => b.addEventListener('click', () => { Store.setUserQty(id, b.getAttribute('data-remove'), 0, b.closest('[data-zone]')?.dataset.zone); App.refresh(); }));
+      $$('[data-remove]', root).forEach((b) => b.addEventListener('click', () => { Store.setUserQty(id, b.getAttribute('data-remove'), 0, b.closest('[data-zone]')?.dataset.zone,elementPrinting(b)); App.refresh(); }));
       const exp = $('#export-mydeck', root);
       if (exp) exp.addEventListener('click', () => {
         const dv = Store.deckView(id);
@@ -1848,14 +1852,14 @@ const UI = (() => {
     $$('.c-card .card-img, .list-row .thumb', root).forEach((el) => {
       el.addEventListener('click', () => {
         const holder = el.closest('[data-card]');
-        openModal(holder ? holder.getAttribute('data-card') : el.getAttribute('data-name'));
+        openModal(holder ? holder.getAttribute('data-card') : el.getAttribute('data-name'),elementPrinting(el));
       });
     });
     // tapping a card name in any deck list opens the full card art
     $$('[data-modal]', root).forEach((el) => {
-      el.addEventListener('click', (e) => { e.stopPropagation(); openModal(el.getAttribute('data-modal')); });
+      el.addEventListener('click', (e) => { e.stopPropagation(); openModal(el.getAttribute('data-modal'),elementPrinting(el)); });
       if (el.getAttribute('role') === 'button') el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(el.getAttribute('data-modal')); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openModal(el.getAttribute('data-modal'),elementPrinting(el)); }
       });
     });
     // list <-> visual deck rendering
@@ -1866,9 +1870,9 @@ const UI = (() => {
     });
   }
 
-  async function openModal(name) {
+  async function openModal(name, printing) {
     if (!name) return;
-    const sid = Store.sidFor(name);
+    const sid = printing?.id || Store.sidFor(name);
     const modal = document.createElement('div');
     modal.className = 'modal-wrap';
     modal.innerHTML = '<div class="modal"><button class="modal-x">close</button><div class="modal-body">' +
@@ -1883,11 +1887,10 @@ const UI = (() => {
     const owned = Store.byName[Store.norm(name)];
     const inDecks = (Store.deckOf()[Store.norm(name)] || []);
     box.innerHTML =
+      '<p class="printing-label">'+esc(P.label(printing || P.selection(c),c))+'</p><p>'+esc(P.styles(c).join(' · '))+'</p>'+
       '<div class="modal-line">' + esc(c.type_line || '') + '</div>' +
       '<div class="modal-oracle">' + esc(c.oracle_text || (c.card_faces ? c.card_faces.map((f) => f.oracle_text).join('\n//\n') : '')) + '</div>' +
-      '<div class="modal-prices">' +
-      (c.prices && c.prices.usd ? '<span>Normal ' + money(parseFloat(c.prices.usd)) + '</span>' : '') +
-      (c.prices && c.prices.usd_foil ? '<span>Foil ' + money(parseFloat(c.prices.usd_foil)) + '</span>' : '') + '</div>' +
+      '<div class="modal-prices">'+(printing ? '<span>'+P.finishLabel(printing.finish)+': '+(P.cents(c,printing.finish)==null?'Unknown':money(P.cents(c,printing.finish)/100))+'</span>' : ['normal','foil','etched'].filter(f=>(c.finishes || ['nonfoil']).includes(f==='normal'?'nonfoil':f)).map(f=>'<span>'+P.finishLabel(f)+': '+(P.cents(c,f)==null?'Unknown':money(P.cents(c,f)/100))+'</span>').join(''))+'</div>'+
       (owned ? '<div class="modal-line">Owned: ' + owned.qty + '</div>' : '') +
       (inDecks.length ? '<div class="modal-line">In decks: ' + inDecks.join(', ') + '</div>' : '');
   }

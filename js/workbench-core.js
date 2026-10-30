@@ -1,10 +1,10 @@
 /* Collection Workbench: pure, independently testable discovery and inventory model.
  * Effect tags aid browsing. They are never rules proofs or interchangeable-card claims. */
 (function (root, factory) {
-  const api = factory();
+  const api = factory(typeof module === 'object' && module.exports ? require('./printings') : root.Printings);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.WorkbenchCore = api;
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+})(typeof window !== 'undefined' ? window : globalThis, function (P) {
   'use strict';
   const key = s => String(s || '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
   const text = f => (f?.oracle_text || f?.o || (f?.card_faces || []).map(x => x.oracle_text || '').join('\n')).toLowerCase();
@@ -95,6 +95,7 @@
     const accessible = decks.filter(d => d.id === targetDeckId);
     const ownBinders = new Set(accessible.filter(d => d.mode === 'binder').map(d => key(d.binder)));
     ownBinders.forEach(b => free.add(b));
+    const eligible = row => !row.proxy && free.has(key(row.binder)) && (key(row.binderType) !== 'deck' || ownBinders.has(key(row.binder)));
     const get = n => { const k = canonical(n); if (!byName.has(k)) byName.set(k, { name: n, key: k, totalOwned: 0, available: 0, eligibleOwned: 0, reserved: 0, proxyQuantity: 0, usedInDecks: [], locations: [], records: [] }); return byName.get(k); };
     for (const row of snapshot?.records || []) {
       const c = get(row.name); c.records.push(row);
@@ -118,7 +119,7 @@
       });
     }
     byName.forEach(c => { c.available = Math.max(0, c.eligibleOwned - c.reserved); c.copiesInOtherDecks = c.usedInDecks.filter(d => !d.accessibleForPlan).reduce((s, d) => s + d.quantity, 0); });
-    return { byName, canonical, get: n => byName.get(canonical(n)) || { name: n, totalOwned: 0, available: 0, proxyQuantity: 0, copiesInOtherDecks: 0, usedInDecks: [], locations: [], records: [] } };
+    return { byName, canonical, eligible, get: n => byName.get(canonical(n)) || { name: n, totalOwned: 0, available: 0, proxyQuantity: 0, copiesInOtherDecks: 0, usedInDecks: [], locations: [], records: [] } };
   }
   function coverage(cards, inv, includeSideboard = false) {
     const counts = new Map();
@@ -137,7 +138,7 @@
       .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 12);
   }
   function comboPayload(deck, facts = {}) {
-    const entries = zone => deck.cards.filter(c=>(c.zone || 'main')===zone).map(c=>({card:facts[key(c.n)]?.name || c.n,quantity:c.q}));
+    const entries = zone => {const map=new Map();for(const c of deck.cards.filter(c=>(c.zone || 'main')===zone)){const name=facts[key(c.n)]?.name || c.n,k=key(name);if(map.has(k))map.get(k).quantity+=c.q;else map.set(k,{card:name,quantity:c.q});}return [...map.values()];};
     return {main:entries('main'),commanders:formatOf(deck)==='commander'?entries('commander'):[]};
   }
   function comboLink(deck, facts) {
@@ -153,7 +154,7 @@
       // Preserve every copy when leaving Commander; merge duplicate zone entries.
       const merged = new Map();
       for (const c of deck.cards) {
-        const zone = c.zone === 'commander' ? 'main' : c.zone || 'main', id = zone + ':' + key(c.n);
+        const zone = c.zone === 'commander' ? 'main' : c.zone || 'main', id = zone + ':' + key(c.n) + ':' + (c.printing ? P.key(c.printing) : 'unspecified');
         if (merged.has(id)) merged.get(id).q += c.q;
         else merged.set(id, { ...c, zone });
       }
@@ -163,8 +164,8 @@
   }
   function fromStoredDeck(d) {
     return { name: d.name, format: formatOf(d), cards: [
-      ...d.cards.map(c => ({ n:c.n, q:c.q, zone:formatOf(d)==='commander' && key(c.n)===key(d.commander) ? 'commander' : 'main' })),
-      ...(d.sideboard || []).map(c => ({ n:c.n, q:c.q, zone:'sideboard' }))
+      ...d.cards.map(c => ({ ...(c.printing ? {printing:P.selection(c.printing)} : {}), n:c.n, q:c.q, zone:formatOf(d)==='commander' && key(c.n)===key(d.commander) ? 'commander' : 'main' })),
+      ...(d.sideboard || []).map(c => ({ ...(c.printing ? {printing:P.selection(c.printing)} : {}), n:c.n, q:c.q, zone:'sideboard' }))
     ] };
   }
   function deckText(deck) {

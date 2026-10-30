@@ -58,6 +58,9 @@ const Scry = (() => {
 
   function compactPrices(c) {
     return {
+      id:c.id, set:c.set, set_name:c.set_name, collector_number:c.collector_number,
+      full_art:c.full_art, border_color:c.border_color, frame:c.frame, frame_effects:c.frame_effects,
+      promo_types:c.promo_types, textless:c.textless, _fetchedAt:new Date().toISOString(),
       usd: c.prices && c.prices.usd ? parseFloat(c.prices.usd) : null,
       usd_foil: c.prices && c.prices.usd_foil ? parseFloat(c.prices.usd_foil) : null,
       usd_etched: c.prices && c.prices.usd_etched ? parseFloat(c.prices.usd_etched) : null,
