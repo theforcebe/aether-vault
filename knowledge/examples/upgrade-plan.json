@@ -1,0 +1,11 @@
+{
+  "description": "Tool demonstration only. Replace with the actual required deck cards.",
+  "cards": [
+    { "name": "Sol Ring", "quantity": 1 },
+    { "name": "Arcane Signet", "quantity": 1 },
+    { "name": "Cyclonic Rift", "quantity": 1 }
+  ],
+  "excludedBinderTypes": ["deck"],
+  "excludeBinders": [],
+  "reserved": []
+}

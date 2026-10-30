@@ -1,0 +1,16 @@
+---
+description: Rules, collection, combo, search syntax, and live upgrade pricing integrity for Magic work
+alwaysApply: true
+---
+
+# Magic work
+
+Read `AGENTS.md` and `knowledge/WORKFLOW.md` for every Magic task.
+Use `knowledge/collection/latest.json` for ownership, not the empty bundled seed.
+Use current Oracle text, rulings, and official format rules before confirming legality.
+Use `node tools/mtg.js query <query.json>` to construct Commander Spellbook queries.
+Search results are candidates; inspect the actual variant and prove its prerequisites.
+Use `node tools/mtg.js quote <plan.json> --out <report.json>` for fresh USD estimates.
+Subtract eligible owned quantities and reservations; keep missing prices unknown.
+Explain role, synergy, cuts, consistency, and tradeoffs for deck recommendations.
+Record evidence and unfinished checks with `knowledge/templates/review.json`.

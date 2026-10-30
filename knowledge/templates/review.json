@@ -1,0 +1,22 @@
+{
+  "title": "",
+  "reviewedAt": null,
+  "constraints": { "format": null, "commanders": [], "goal": null, "budgetUsd": null, "proxyPolicy": null, "powerExpectations": null, "houseRules": [] },
+  "inventory": { "snapshot": "knowledge/collection/latest.json", "sha256": null, "excludedBinders": [], "reservations": [] },
+  "searches": [],
+  "sources": [],
+  "checks": {
+    "cardIdentityAndOracle": { "status": "unresolved", "evidence": [] },
+    "formatLegalityAndBanList": { "status": "unresolved", "evidence": [] },
+    "sizeZonesCopiesAndCommanders": { "status": "unresolved", "evidence": [] },
+    "ownershipAndAllocations": { "status": "unresolved", "evidence": [] },
+    "manaCurveRolesAndSynergy": { "status": "unresolved", "evidence": [] },
+    "comboPrerequisitesAndSequence": { "status": "unresolved", "evidence": [] },
+    "currentUpgradePricing": { "status": "unresolved", "evidence": [] }
+  },
+  "recommendations": [],
+  "combos": [],
+  "comboRecordFields": ["variantUrl", "variantId", "status", "components", "templateReplacements", "startingZonesAndStates", "startingMana", "otherResources", "oracleAndRuleSources", "numberedSteps", "netResourcesPerIteration", "outcome", "limits", "opponentDependencies", "interruptionPoints"],
+  "quoteReport": null,
+  "unresolved": []
+}

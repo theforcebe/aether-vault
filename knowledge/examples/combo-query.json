@@ -1,0 +1,7 @@
+{
+  "identity": "ub",
+  "maxCards": 3,
+  "resultAny": ["Infinite mana", "Win the game"],
+  "excludeTags": ["mld", "lock"],
+  "format": "commander"
+}

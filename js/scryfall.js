@@ -101,7 +101,7 @@ const Scry = (() => {
 
   function compactFull(c) {
     return {
-      name: c.name, sid: c.id,
+      name: c.name, sid: c.id, oracle_id:c.oracle_id, legalities:c.legalities, layout:c.layout, _fetchedAt:new Date().toISOString(),
       o: (c.oracle_text ?? (c.card_faces ? c.card_faces.map((f) => f.oracle_text).join(' // ') : '')).toLowerCase(),
       t: (c.type_line || '').toLowerCase(),
       mv: c.cmc || 0,
@@ -120,6 +120,7 @@ const Scry = (() => {
         out.bySid[f.sid] = f;
         out.byName[c.name.toLowerCase()] = f;
         out.byName[c.name.split(' // ')[0].toLowerCase()] = f;
+        for(const face of c.card_faces || [])out.byName[face.name.toLowerCase()]=f;
       }
       for (const nf of res.not_found || []) out.missing.push(nf.name || nf.id || '');
       if (onProgress) onProgress(Math.min(i + 75, identifiers.length), identifiers.length);

@@ -1,0 +1,7 @@
+# Local collection and research state. Never publish with the website.
+knowledge/collection/
+knowledge/quotes/
+knowledge/cache/
+knowledge/reviews/
+*.tmp
+.tool-deps/

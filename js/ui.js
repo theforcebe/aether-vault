@@ -30,8 +30,8 @@ const UI = (() => {
     if (!t) return '';
     const up = t.d >= 0;
     const sign = up ? '+' : '-';
-    return '<span class="tick ' + (up ? 'up' : 'down') + '">' + sign + Math.abs(t.d).toFixed(2) +
-      ' (' + sign + Math.abs(t.pct).toFixed(1) + '%)</span>';
+    return '<span class="tick ' + (up ? 'up' : 'down') + '"><span class="tick-amount">' + sign + Math.abs(t.d).toFixed(2) +
+      '</span> <span class="tick-percent">(' + sign + Math.abs(t.pct).toFixed(1) + '%)</span></span>';
   }
   function tickerHtml(n, sid, f) {
     return tickFmt(Store.ticker(n, sid, f || ''));
@@ -58,18 +58,46 @@ const UI = (() => {
   function hoverPreview() {
     let tip = $('#hover-card');
     if (!tip) { tip = document.createElement('div'); tip.id = 'hover-card'; document.body.appendChild(tip); }
-    if (window.matchMedia('(hover: none)').matches) return;
-    document.addEventListener('mouseover', (e) => {
+    tip.setAttribute('aria-hidden', 'true');
+    let active = null, timer;
+    const hide = () => { clearTimeout(timer); active = null; tip.style.display = 'none'; };
+    const eligible = e => {
+      if (e.pointerType && e.pointerType !== 'mouse') return null;
+      if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches || window.innerWidth <= 900) return null;
       const el = e.target.closest('[data-hover-sid]');
-      if (!el || !el.getAttribute('data-hover-sid')) { tip.style.display = 'none'; return; }
-      tip.innerHTML = '<img src="' + Scry.img(el.getAttribute('data-hover-sid'), 'normal') + '" alt="">';
-      tip.style.display = 'block';
+      if (!el || !el.getAttribute('data-hover-sid')) return null;
+      // Actions and prices must never summon art. List previews belong to the
+      // name/thumbnail, and are placed outside the complete active row.
+      if (el.matches('.list-row, .d-row, .sugg-row, .hold-row') && !e.target.closest('.thumb, .list-n, .d-n, .sugg-n, .hold-n')) return null;
+      if (e.target.closest('input, select, textarea, [data-move], [data-remove], [data-inc], [data-dec], [data-bought], [data-cpadd]')) return null;
+      return el;
+    };
+    document.addEventListener('pointerover', e => {
+      const el = eligible(e);
+      if (el === active) return;
+      hide(); if (!el) return; active = el;
+      timer = setTimeout(() => {
+        if (active !== el || !el.isConnected) return;
+        const row = el.closest('.list-row, .d-row, .sugg-row, .hold-row') || el;
+        const r = row.getBoundingClientRect(), margin = 12, gap = 12;
+        const top = Math.max(margin, $('.topbar')?.getBoundingClientRect().bottom || 0) + gap;
+        const above = r.top - top - gap, below = window.innerHeight - margin - r.bottom - gap;
+        const side = below >= 320 || below >= above ? 'below' : 'above';
+        const height = Math.min(334, side === 'below' ? below : above);
+        if (height < 160) { hide(); return; }
+        const width = height * 488 / 680;
+        tip.style.width = width + 'px';
+        tip.style.left = Math.max(margin, Math.min(e.clientX - width / 2, window.innerWidth - width - margin)) + 'px';
+        tip.style.top = (side === 'below' ? r.bottom + gap : r.top - gap - height) + 'px';
+        tip.innerHTML = '<img src="' + Scry.img(el.getAttribute('data-hover-sid'), 'normal') + '" alt="">';
+        tip.style.display = 'block';
+      }, 180);
     });
-    document.addEventListener('mousemove', (e) => {
-      if (tip.style.display !== 'block') return;
-      tip.style.left = Math.min(e.clientX + 18, window.innerWidth - 260) + 'px';
-      tip.style.top = Math.min(Math.max(e.clientY - 170, 8), window.innerHeight - 350) + 'px';
+    document.addEventListener('pointerout', e => {
+      if (active && (!e.relatedTarget || !active.contains(e.relatedTarget))) hide();
     });
+    for (const event of ['scroll', 'pointerdown', 'keydown']) document.addEventListener(event, hide, true);
+    for (const event of ['resize', 'blur', 'hashchange']) window.addEventListener(event, hide);
   }
 
   function sheet(title, options) {
@@ -102,7 +130,7 @@ const UI = (() => {
     const bins = [0, 0, 0, 0, 0, 0, 0, 0];
     for (const c of cards) {
       const f = Store.card(c.n);
-      if (f && f.t.includes('Land')) continue;
+      if (f && (f.t || '').toLowerCase().includes('land')) continue;
       bins[Math.min(Math.floor((f && f.mv) || 0), 7)] += c.q;
     }
     const max = Math.max(...bins, 1);
@@ -127,7 +155,7 @@ const UI = (() => {
     const counts = {};
     for (const c of cards) {
       const f = Store.card(c.n);
-      if (!f || f.t.includes('Land')) continue;
+      if (!f || (f.t || '').toLowerCase().includes('land')) continue;
       for (const ch of (f.ci || 'C') === '' ? 'C' : (f.ci || 'C')) counts[ch] = (counts[ch] || 0) + c.q;
     }
     return donutFrom(counts);
@@ -293,10 +321,10 @@ const UI = (() => {
       body = '<div class="list-head"><span></span><span>Name</span><span>Sets</span><span class="ra">Qty</span><span class="ra">Price</span><span></span></div>' +
         shown.map((it) => '<div class="list-row" data-card="' + esc(it.n) + '" data-hover-sid="' + (it.sid || '') + '">' +
           thumb(it.sid) +
-          '<span class="list-n">' + esc(it.n) + (it.foil ? ' <span class="badge">foil</span>' : '') + '</span>' +
-          '<span class="dim">' + [...it.sets].slice(0, 3).join(', ') + '</span>' +
-          '<span class="ra dim">x' + it.q + '</span><span class="ra list-p">' + money(val(it)) + '<br>' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</span>' +
-          '<button class="btn small m-act" data-move="' + esc(it.n) + '">Add</button></div>').join('');
+          '<button class="list-n" data-modal="' + esc(it.n) + '">' + esc(it.n) + (it.foil ? ' <span class="badge">foil</span>' : '') + '</button>' +
+          '<span class="dim list-sets">' + [...it.sets].slice(0, 3).join(', ') + '</span>' +
+          '<span class="ra dim list-qty">x' + it.q + '</span><span class="ra list-p"><span class="list-value">' + money(val(it)) + '</span>' + tickerHtml(it.n, it.sid, it.foil ? 'foil' : '') + '</span>' +
+          '<button class="btn small m-act" data-move="' + esc(it.n) + '" aria-label="Add ' + esc(it.n) + ' to a deck">Add</button></div>').join('');
     } else {
       body = '<div class="col-grid">' + shown.map((it) =>
         '<div class="c-card" draggable="true" data-card="' + esc(it.n) + '" data-sid="' + (it.sid || '') + '">' +
@@ -325,6 +353,10 @@ const UI = (() => {
       (items.length > show ? '<div class="show-more"><button class="btn" id="show-more" data-next="' + (show + 600) + '">Show ' + Math.min(600, items.length - show) + ' more</button></div>' : '');
   }
 
+  function deckEstimate(cards) {
+    let total=0,unknown=0;for(const c of cards){const p=Store.knownCardValue(c.n,c.sid);if(p==null)unknown+=c.q;else total+=p*c.q;}
+    return unknown ? money(total)+' known · '+unknown+' unpriced' : money(total);
+  }
   function viewDecks() {
     const refs = Store.allDeckRefs();
     const tiles = refs.map((r) => {
@@ -333,7 +365,7 @@ const UI = (() => {
         cardImgHtml(dv.name, dv.commanderSid, 'tile-art') +
         '<div class="tile-body"><div class="tile-name">' + esc(dv.name) + '</div>' +
         '<div class="tile-sub">' + esc(dv.sub) + ' ' + pips(dv.ci) + '</div>' +
-        '<div class="tile-price">' + money(Store.userDeckTotal(r.key)) + '</div></div></a>';
+        '<div class="tile-price">' + (dv.format==='standard'?deckEstimate(Store.deckCards(dv)):money(Store.userDeckTotal(r.key))) + '</div></div></a>';
     }).join('');
     let sess = '';
     for (const s of Store.state.sessions) {
@@ -352,15 +384,15 @@ const UI = (() => {
 
   function bucketOf(n) {
     const c = Store.card(n);
-    const t = c ? c.t.split(' // ')[0] : '';
-    if (/^Basic Land/.test(t)) return 'Basics';
-    if (t.includes('Land')) return 'Lands';
-    if (t.includes('Creature')) return 'Creatures';
-    if (t.includes('Planeswalker')) return 'Planeswalkers';
-    if (t.includes('Instant')) return 'Instants';
-    if (t.includes('Sorcery')) return 'Sorceries';
-    if (t.includes('Artifact')) return 'Artifacts';
-    if (t.includes('Enchantment')) return 'Enchantments';
+    const t = c ? (c.t || '').split(' // ')[0].toLowerCase() : '';
+    if (/^basic land/.test(t)) return 'Basics';
+    if (t.includes('land')) return 'Lands';
+    if (t.includes('creature')) return 'Creatures';
+    if (t.includes('planeswalker')) return 'Planeswalkers';
+    if (t.includes('instant')) return 'Instants';
+    if (t.includes('sorcery')) return 'Sorceries';
+    if (t.includes('artifact')) return 'Artifacts';
+    if (t.includes('enchantment')) return 'Enchantments';
     return 'Other';
   }
 
@@ -400,15 +432,15 @@ const UI = (() => {
       for (const c of list) {
         const sid = c.sid || Store.sidFor(c.n);
         const warn = o.ci ? (() => { const f = Store.card(c.n); return f && [...(f.ci || '')].some((x) => !o.ci.includes(x)); })() : false;
-        rowsH += '<div class="d-row" draggable="true" data-card="' + esc(c.n) + '" data-hover-sid="' + (sid || '') + '">' +
+        rowsH += '<div class="d-row" data-zone="'+(o.zone || 'main')+'" draggable="true" data-card="' + esc(c.n) + '" data-hover-sid="' + (sid || '') + '">' +
           (o.editable
             ? '<span class="qty-ctl"><button class="qb" data-dec="' + esc(c.n) + '" aria-label="One fewer ' + esc(c.n) + '">&minus;</button><span class="d-q">' + c.q + '</span><button class="qb" data-inc="' + esc(c.n) + '" aria-label="One more ' + esc(c.n) + '">+</button></span>'
             : '<span class="d-q">' + c.q + '</span>') +
           '<span class="d-n"><span data-modal="' + esc(c.n) + '">' + esc(c.n) + '</span>' +
           (warn ? ' <span class="badge warn" title="Outside commander color identity">CI</span>' : '') +
-          (o.showNeed && !/^(plains|island|swamp|mountain|forest|wastes|snow-covered)/i.test(c.n) && (!Store.byName[Store.norm(c.n)] || Store.byName[Store.norm(c.n)].qty < c.q)
+          (o.showNeed && !/^(plains|island|swamp|mountain|forest|wastes|snow-covered)/i.test(c.n) && (!Store.byName[Store.norm(c.n)] || Store.byName[Store.norm(c.n)].qty < (o.required || cards).filter(x=>Store.norm(x.n)===Store.norm(c.n)).reduce((sum,x)=>sum+x.q,0))
             ? ' <button class="btn small buy-b" data-bought="' + esc(c.n) + '">Bought</button>' : '') + '</span>' +
-          '<span class="d-p">' + money(Store.cardValue(c.n, sid) * c.q) + tickerHtml(c.n, sid, '') + '</span>' +
+          '<span class="d-p">' + (o.standard && Store.knownCardValue(c.n,sid)==null?'Unknown':money(Store.cardValue(c.n, sid) * c.q)) + tickerHtml(c.n, sid, '') + '</span>' +
           (o.editable
             ? '<button class="m-act icon" data-remove="' + esc(c.n) + '" title="Remove" aria-label="Remove ' + esc(c.n) + '">&times;</button>'
             : '<button class="m-act icon" data-move="' + esc(c.n) + '" title="Add to a deck" aria-label="Add ' + esc(c.n) + ' to a deck">&#8942;</button>') +
@@ -515,59 +547,69 @@ const UI = (() => {
   function deckHeadHtml(dv, extra, deckId) {
     const cards = dv.cards;
     const total = cards.reduce((s, c) => s + c.q, 0);
-    const value = cards.reduce((s, c) => s + Store.cardValue(c.n, c.sid || Store.sidFor(c.n)) * c.q, 0);
+    const value = (dv.format==='standard' ? cards.concat(dv.sideboard || []) : cards).reduce((s, c) => s + Store.cardValue(c.n, c.sid || Store.sidFor(c.n)) * c.q, 0);
     return '<div class="deck-head">' +
       cardImgHtml(dv.name, dv.commanderSid, 'deck-art') +
       '<div class="deck-info"><h1>' + esc(dv.name) + '</h1>' +
       '<div class="tile-sub">' + esc(dv.sub) + ' ' + pips(dv.ci) + '</div>' +
-      '<div class="deck-stats"><span>' + total + ' cards</span><span>' + money(value) + '</span>' +
-      '<button class="btn small primary" id="analyze" data-deck="' + deckId + '">Analyze deck</button></div>' +
+      '<div class="deck-stats"><span>' + total + ' cards</span><span>' + (dv.format==='standard'?deckEstimate(Store.deckCards(dv)):money(value)) + '</span>' +
+      (dv.format==='standard' ? (deckId.startsWith('session:') ? '' : '<button class="btn small primary" id="check-standard">Refresh Standard legality</button>') : '<button class="btn small primary" id="analyze" data-deck="' + deckId + '">Analyze deck</button>')+'</div>' +
       (extra || '') + '</div>' +
       '<div class="deck-charts">' + curveChart(cards) + pipDonut(cards) + '</div></div>';
   }
 
+  const standardFacts = {}, deckAddZones = {};
+  function standardChecks(d) {
+    const check=window.WorkbenchCore.validateDeck(window.WorkbenchCore.fromStoredDeck(d),standardFacts);
+    const dates=Store.deckCards(d).map(c=>standardFacts[window.WorkbenchCore.key(c.n)]?._fetchedAt).filter(Boolean).sort();
+    return '<section class="standard-checks"><h2>Standard construction</h2><p><strong>'+check.total+' / 60+ main · '+check.sideboardTotal+' / 15 sideboard</strong></p><p>'+esc(check.note)+'</p><details'+(check.issues.length?' open':'')+'><summary>'+ (check.issues.length ? check.issues.length+' checks to review' : 'Preliminary checks passed')+'</summary><ul>'+check.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul></details><p class="dim">'+(dates.length?'Card facts last retrieved '+new Date(dates[dates.length-1]).toLocaleString()+'. ':'')+'<a href="https://magic.wizards.com/en/formats/standard" target="_blank" rel="noopener">Official Standard rules</a> · <a href="https://magic.wizards.com/en/banned-restricted-list" target="_blank" rel="noopener">Banned cards</a></p></section>';
+  }
   function viewMyDeck(id) {
     const d = Store.userDeck(id);
     if (!d) return '<p>Deck not found.</p>';
-    const dv = Store.deckView(id);
+    const dv = Store.deckView(id), standard = dv.format==='standard';
     const extra = '<div class="deck-actions">' +
       '<input id="deck-name" value="' + esc(d.name) + '" title="Deck name">' +
-      '<select id="deck-cmd"><option value="">No commander set</option>' +
-      d.cards.map((c) => '<option ' + (Store.norm(c.n) === Store.norm(d.commander) ? 'selected' : '') + '>' + esc(c.n) + '</option>').join('') + '</select>' +
+      '<select id="deck-format" aria-label="Deck format"><option value="commander"'+(!standard?' selected':'')+'>Commander</option><option value="standard"'+(standard?' selected':'')+'>Standard</option></select>' +
+      (!standard ? '<select id="deck-cmd" aria-label="Commander"><option value="">No commander set</option>' + d.cards.map((c) => '<option ' + (Store.norm(c.n) === Store.norm(d.commander || '') ? 'selected' : '') + '>' + esc(c.n) + '</option>').join('') + '</select>' : '') +
       '<button class="btn small" id="export-mydeck">Copy list</button>' +
-      '<a class="btn small" href="#/pilot/' + id + '">Pilot guide</a>' +
+      (!standard ? '<a class="btn small" href="#/pilot/' + id + '">Pilot guide</a>' : '') +
+      '<a class="btn small" href="#/workbench?deck='+encodeURIComponent(id)+'">Open working copy</a>' +
       '<button class="btn small" id="deckview-toggle">' + (deckViewPref() === 'visual' ? 'List view' : 'Visual view') + '</button>' +
       '<button class="btn small danger" id="del-mydeck">Delete</button></div>' +
+      (standard ? '<label class="deck-add-zone">Add cards to <select id="deck-add-zone"><option value="main">Main deck</option><option value="sideboard">Sideboard</option></select></label>' : '') +
       '<div class="add-wrap"><input id="add-card" placeholder="Add a card, type to search" autocomplete="off"><div id="add-sug"></div></div>';
-    const missing = Store.missingFromCollection(dv.cards);
+    const missing = Store.missingFromCollection(Store.deckCards(d));
     const missCost = missing.reduce((s, m) => s + m.unit * m.q, 0);
     const buyBar = missing.length
-      ? '<div class="deck-actions"><span class="badge buy">' + missing.reduce((s, m) => s + m.q, 0) + ' to buy, ' + money(missCost) + '</span>' +
+      ? '<div class="deck-actions"><span class="badge buy">' + missing.reduce((s, m) => s + m.q, 0) + ' to buy, ' + (standard?deckEstimate(missing):money(missCost)) + '</span>' +
         '<button class="btn small" id="buy-all">Mark all as bought</button>' +
         '<button class="btn small" id="dl-missing">Buy list .txt</button></div>'
       : (Store.hasCollection() ? '<div class="deck-actions"><span class="badge own">fully owned</span></div>' : '');
     const nonCmdTotal = dv.cards.filter((c) => c.src !== 'commander').reduce((s, c) => s + c.q, 0);
-    const completeBar = nonCmdTotal < 99
+    const completeBar = !standard && nonCmdTotal < 99
       ? '<div class="deck-actions"><span class="badge warn">' + nonCmdTotal + ' of 99</span>' +
         '<button class="btn small" id="complete-deck">Complete my deck</button></div>'
       : '';
     const visual = deckViewPref() === 'visual';
     return deckHeadHtml(dv, extra + buyBar + completeBar, id) +
-      '<div id="report-slot">' + (reports[id] ? reportHtml(reports[id], { editableId: id }) : '') + '</div>' +
-      '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { editable: true, ci: dv.ci || null, showNeed: Store.hasCollection(), visual }) + '</div>';
+      (standard ? '<div id="standard-result" aria-live="polite">'+standardChecks(d)+'</div>' : '') +
+      '<div id="report-slot">' + (!standard && reports[id] ? reportHtml(reports[id], { editableId: id }) : '') + '</div>' +
+      '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { editable: true, standard, ci: dv.ci || null, showNeed: Store.hasCollection(), required:Store.deckCards(d), visual }) + '</div>' +
+      (standard ? '<section class="deck-sideboard"><h2>Sideboard <span class="dim">'+dv.sideboard.reduce((s,c)=>s+c.q,0)+' / 15</span></h2><p class="dim">Counts toward the four-copy limit and collection check. Select Sideboard above to add cards.</p><div class="'+(visual?'deck-vcols':'deck-cols')+'">'+(dv.sideboard.length ? deckColumnsHtml(dv.sideboard,{editable:true,standard:true,zone:'sideboard',showNeed:Store.hasCollection(),required:Store.deckCards(d),visual}) : '<p class="dim">No sideboard cards yet.</p>')+'</div></section>' : '');
   }
 
   function viewSession(id) {
     const s = Store.state.sessions.find((x) => x.id === id);
     if (!s) return '<p>Not found.</p>';
-    const dv = { name: s.name, sub: 'Imported list', ci: '', commanderSid: '', cards: s.cards.map((c) => ({ ...c, src: 'user' })) };
+    const dv = { name: s.name, format:s.format, sideboard:s.sideboard || [], sub: (s.format==='standard'?'Standard · ':'')+'Imported list', ci: '', commanderSid: '', cards: s.cards.map((c) => ({ ...c, src: 'user' })) };
     const extra = '<div class="deck-actions"><button class="btn small" id="sess-edit" data-id="' + s.id + '">Make editable copy</button>' +
-      '<a class="btn small" href="#/pilot/session:' + s.id + '">Pilot guide</a>' +
+      (s.format==='standard'?'':'<a class="btn small" href="#/pilot/session:' + s.id + '">Pilot guide</a>') +
       '<button class="btn small" id="deckview-toggle">' + (deckViewPref() === 'visual' ? 'List view' : 'Visual view') + '</button></div>';
     const visual = deckViewPref() === 'visual';
     return deckHeadHtml(dv, extra, 'session:' + id) +
       '<div id="report-slot">' + (reports['session:' + id] ? reportHtml(reports['session:' + id], {}) : '') + '</div>' +
-      '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { visual }) + '</div>';
+      '<div class="' + (visual ? 'deck-vcols' : 'deck-cols') + '">' + deckColumnsHtml(dv.cards, { visual }) + '</div>'+((s.sideboard||[]).length?'<h2>Sideboard</h2><div class="deck-cols">'+deckColumnsHtml(s.sideboard,{})+'</div>':'');
   }
 
   function viewMoves() {
@@ -586,7 +628,7 @@ const UI = (() => {
     return '<div class="page-h"><h1>Import a deck</h1></div>' +
       '<p class="dim">One card per line, like: 1 Sol Ring.</p>' +
       '<textarea id="imp-text" rows="12" placeholder="1 Atraxa, Grand Unifier&#10;1 Sol Ring&#10;..."></textarea>' +
-      '<div class="row"><input id="imp-name" placeholder="Deck name">' +
+      '<div class="row"><input id="imp-name" placeholder="Deck name"><select id="imp-format" aria-label="Deck format"><option value="commander">Commander</option><option value="standard">Standard</option></select>' +
       '<button class="btn primary" id="imp-go">Import as editable deck</button>' +
       '<button class="btn" id="imp-go-ro">Import read-only</button>' +
       '<button class="btn" id="imp-compare"' + (Store.hasCollection() ? '' : ' disabled title="Upload a collection first"') + '>Compare vs my collection</button></div>' +
@@ -1104,6 +1146,7 @@ const UI = (() => {
         } else {
           dv = Store.deckView(pkey);
           if (!dv) return;
+          if(dv.format==='standard'){const doc=$('#pilot-doc',root);if(doc)doc.innerHTML='<p>Commander pilot guides do not apply to Standard. <a href="#/mydeck/'+esc(pkey)+'">Return to your Standard deck</a> for format checks, or open a working copy for interactions.</p>';return;}
           rkey = pkey;
         }
         try {
@@ -1345,7 +1388,7 @@ const UI = (() => {
     if (cm) cm.addEventListener('click', () => { Store.clearMoves(); App.refresh(); });
 
     const nd = $('#new-deck', root);
-    if (nd) nd.addEventListener('click', () => { const d = Store.createUserDeck('New deck', []); location.hash = '#/mydeck/' + d.id; });
+    if (nd) nd.addEventListener('click', () => sheet('Choose a deck format', ['commander','standard'].map(format=>({label:format==='standard'?'Standard · 60+ main, up to 15 sideboard':'Commander · 100 cards, singleton',cb:()=>{const d=Store.createUserDeck('New '+format+' deck',[],'',{format});location.hash='#/mydeck/'+d.id;}}))));
     $$('[data-delsess]', root).forEach((b) => b.addEventListener('click', () => { Store.deleteSession(b.getAttribute('data-delsess')); App.refresh(); }));
 
     // analyzer
@@ -1420,7 +1463,7 @@ const UI = (() => {
       const own = Store.byName[Store.norm(n)];
       const have = own ? own.qty : 0;
       const dv2 = route.startsWith('#/mydeck/') ? Store.deckView(route.split('/')[2]) : null;
-      const inDeck = dv2 ? (dv2.cards.find((c) => Store.norm(c.n) === Store.norm(n)) || { q: 1 }).q : 1;
+      const inDeck = dv2 ? Store.deckCards(dv2).filter(c=>Store.norm(c.n)===Store.norm(n)).reduce((s,c)=>s+c.q,0) : 1;
       const need = Math.max(1, inDeck - have);
       sheet('Did you buy ' + n + '?', [{
         label: 'Yes, add ' + need + ' to my collection',
@@ -1430,7 +1473,7 @@ const UI = (() => {
     const buyAll = $('#buy-all', root);
     if (buyAll) buyAll.addEventListener('click', () => {
       const dv2 = Store.deckView(route.split('/')[2]);
-      const missing = Store.missingFromCollection(dv2.cards);
+      const missing = Store.missingFromCollection(Store.deckCards(dv2));
       const total = missing.reduce((s, m) => s + m.unit * m.q, 0);
       sheet('Add all ' + missing.reduce((s, m) => s + m.q, 0) + ' missing cards (' + money(total) + ') to your collection?', [{
         label: 'Yes, I bought them all',
@@ -1440,7 +1483,7 @@ const UI = (() => {
     const dlm = $('#dl-missing', root);
     if (dlm) dlm.addEventListener('click', () => {
       const dv2 = Store.deckView(route.split('/')[2]);
-      const missing = Store.missingFromCollection(dv2.cards);
+      const missing = Store.missingFromCollection(Store.deckCards(dv2));
       dl('buylist.txt', missing.map((m) => m.q + ' ' + m.n).join('\n'));
     });
 
@@ -1448,6 +1491,21 @@ const UI = (() => {
       const id = route.split('/')[2];
       const name = $('#deck-name', root);
       if (name) name.addEventListener('change', () => { Store.renameUserDeck(id, name.value.trim() || 'New deck'); App.refresh(); });
+      const addZone=$('#deck-add-zone',root);if(addZone){addZone.value=deckAddZones[id] || 'main';addZone.onchange=()=>{deckAddZones[id]=addZone.value;};}
+      const fmt=$('#deck-format',root);
+      if(fmt)fmt.addEventListener('change',()=>{Store.setUserFormat(id,fmt.value);delete reports[id];App.refresh();});
+      const check=$('#check-standard',root);
+      if(check)check.addEventListener('click',async()=>{
+        check.disabled=true;check.textContent='Checking current legality…';
+        try{const d=Store.userDeck(id), names=[...new Set(Store.deckCards(d).map(c=>c.n))];
+          const result=await Scry.fullCards(names.map(name=>({name})),(done,total)=>{check.textContent='Checking '+done+' / '+total;});
+          for(const n of names)delete standardFacts[window.WorkbenchCore.key(n)];
+          for(const [name,f] of Object.entries(result.byName))standardFacts[window.WorkbenchCore.key(name)]=f;
+          const resolved={};for(const f of Object.values(result.byName))resolved[f.name.toLowerCase()]=f;Store.cacheResolved(resolved);
+          if(location.hash.split('?')[0]==='#/mydeck/'+id)App.refresh();
+        }catch(e){const slot=$('#standard-result',root);if(slot){const p=document.createElement('p');p.className='standard-error';p.setAttribute('role','alert');p.textContent='Legality lookup failed: '+e.message+'. Existing checks remain preliminary. Try again.';slot.prepend(p);}}
+        finally{check.disabled=false;check.textContent='Refresh Standard legality';}
+      });
       const cmd = $('#deck-cmd', root);
       if (cmd) cmd.addEventListener('change', () => { Store.setUserCommander(id, cmd.value); App.refresh(); });
       const del = $('#del-mydeck', root);
@@ -1475,19 +1533,19 @@ const UI = (() => {
           btn.textContent = 'Added';
         }));
       });
-      $$('[data-inc]', root).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-inc'), 1); App.refresh(); }));
+      $$('[data-inc]', root).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-inc'), 1, b.closest('[data-zone]')?.dataset.zone); App.refresh(); }));
       $$('[data-dec]', root).forEach((b) => b.addEventListener('click', () => {
         const n = b.getAttribute('data-dec');
         const d = Store.userDeck(id);
-        const c = d.cards.find((x) => Store.norm(x.n) === Store.norm(n));
-        Store.setUserQty(id, n, (c ? c.q : 1) - 1); App.refresh();
+        const zone=b.closest('[data-zone]')?.dataset.zone || 'main';
+        const c = (zone==='sideboard'?d.sideboard || []:d.cards).find((x) => Store.norm(x.n) === Store.norm(n));
+        Store.setUserQty(id, n, (c ? c.q : 1) - 1, zone); App.refresh();
       }));
-      $$('[data-remove]', root).forEach((b) => b.addEventListener('click', () => { Store.setUserQty(id, b.getAttribute('data-remove'), 0); App.refresh(); }));
+      $$('[data-remove]', root).forEach((b) => b.addEventListener('click', () => { Store.setUserQty(id, b.getAttribute('data-remove'), 0, b.closest('[data-zone]')?.dataset.zone); App.refresh(); }));
       const exp = $('#export-mydeck', root);
       if (exp) exp.addEventListener('click', () => {
         const dv = Store.deckView(id);
-        const text = (dv.commander ? '1 ' + dv.commander + '\n' : '') +
-          dv.cards.filter((c) => c.src !== 'commander').map((c) => c.q + ' ' + c.n).join('\n');
+        const text = window.WorkbenchCore.deckText(window.WorkbenchCore.fromStoredDeck(Store.userDeck(id)));
         navigator.clipboard.writeText(text).then(() => toast('Decklist copied.'), () => toast('Could not access clipboard.'));
       });
       const add = $('#add-card', root);
@@ -1500,7 +1558,7 @@ const UI = (() => {
           const hits = names.filter((n) => n.toLowerCase().includes(v)).slice(0, 8);
           sug.innerHTML = hits.map((h) => '<button class="sug" data-add="' + esc(h) + '">' + esc(h) + '</button>').join('') +
             '<button class="sug dim" data-addany="' + esc(add.value) + '">Search Scryfall for “' + esc(add.value) + '”</button>';
-          $$('.sug[data-add]', sug).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-add'), 1); App.refresh(); }));
+          $$('.sug[data-add]', sug).forEach((b) => b.addEventListener('click', () => { Store.addToUserDeck(id, b.getAttribute('data-add'), 1, $('#deck-add-zone',root)?.value); App.refresh(); }));
           const any = $('[data-addany]', sug);
           if (any) any.addEventListener('click', async () => {
             any.textContent = 'Searching...';
@@ -1509,7 +1567,7 @@ const UI = (() => {
             const rec = {};
             rec[c.name.toLowerCase()] = { sid: c.id, name: c.name, t: c.type_line, mv: c.cmc, ci: (c.color_identity || []).join(''), usd: c.prices && c.prices.usd ? parseFloat(c.prices.usd) : null };
             Store.cacheResolved(rec);
-            Store.addToUserDeck(id, c.name, 1);
+            Store.addToUserDeck(id, c.name, 1, $('#deck-add-zone',root)?.value);
             App.refresh();
           });
         });
@@ -1612,13 +1670,11 @@ const UI = (() => {
     if (cmpBtn) cmpBtn.addEventListener('click', async () => {
       const text = $('#imp-text', root).value;
       const status = $('#imp-status', root);
-      const cards = [];
-      for (const l of text.split('\n').map((x) => x.trim()).filter(Boolean)) {
-        const m = l.match(/^(\d+)x?\s+(.+)$/);
-        const q = m ? parseInt(m[1], 10) : 1;
-        const n = (m ? m[2] : l).replace(/\s*\((.*?)\)\s*[\w-]*\s*$/, '').trim();
-        if (n) cards.push({ n, q });
-      }
+      const parsed=window.WorkbenchCore.parseDeck(text);
+      if(parsed.errors.length){status.textContent=parsed.errors.join(' ');return;}
+      const counts=new Map(), format=$('#imp-format',root).value;
+      for(const c of parsed.cards.filter(c=>format==='standard'||c.zone!=='sideboard')){const k=Store.norm(c.n);if(counts.has(k))counts.get(k).q+=c.q;else counts.set(k,{...c});}
+      const cards=[...counts.values()];
       if (!cards.length) { status.textContent = 'Nothing to compare.'; return; }
       status.textContent = 'Pricing ' + cards.length + ' cards...';
       const need = cards.filter((c) => !Store.sidFor(c.n)).map((c) => c.n);
@@ -1641,13 +1697,11 @@ const UI = (() => {
       const text = $('#imp-text', root).value;
       const name = $('#imp-name', root).value.trim() || 'Imported deck';
       const status = $('#imp-status', root);
-      const cards = [];
-      for (const l of text.split('\n').map((x) => x.trim()).filter(Boolean)) {
-        const m = l.match(/^(\d+)x?\s+(.+)$/);
-        const q = m ? parseInt(m[1], 10) : 1;
-        const n = (m ? m[2] : l).replace(/\s*\((.*?)\)\s*[\w-]*\s*$/, '').trim();
-        if (n) cards.push({ n, q });
-      }
+      const parsed=window.WorkbenchCore.parseDeck(text);
+      if(parsed.errors.length){status.textContent=parsed.errors.join(' ');return;}
+      const format=$('#imp-format',root).value;
+      const imported=window.WorkbenchCore.setFormat({format,cards:parsed.cards},format);
+      const cards=imported.cards;
       if (!cards.length) { status.textContent = 'Nothing to import.'; return; }
       status.textContent = 'Resolving ' + cards.length + ' cards...';
       const need = cards.filter((c) => !Store.sidFor(c.n)).map((c) => c.n);
@@ -1657,9 +1711,11 @@ const UI = (() => {
         if (res.missing.length) status.textContent = 'Not found: ' + res.missing.join(', ');
       }
       for (const c of cards) c.sid = Store.sidFor(c.n);
-      if (editable) { const d = Store.createUserDeck(name, cards); location.hash = '#/mydeck/' + d.id; }
-      else { const s = Store.saveSession(name, cards); location.hash = '#/session/' + s.id; }
-      toast('Imported ' + name + '. Run Analyze for a bracket read.');
+      const options={format,sideboard:cards.filter(c=>c.zone==='sideboard')}, main=cards.filter(c=>c.zone!=='sideboard'), commander=cards.find(c=>c.zone==='commander')?.n || '';
+      if(cards.filter(c=>c.zone==='commander').length>1){status.textContent='Paired commanders are supported in Workbench. Import this list there to preserve both commanders.';return;}
+      if (editable) { const d = Store.createUserDeck(name, main, commander, options); location.hash = '#/mydeck/' + d.id; }
+      else { const s = Store.saveSession(name, main, {...options,commander}); location.hash = '#/session/' + s.id; }
+      toast('Imported ' + name + (format==='standard'?'. Use Refresh Standard legality to check current cards.':'. Run Analyze for a bracket read.'));
     };
     const g1 = $('#imp-go', root);
     if (g1) g1.addEventListener('click', () => doImport(true));
@@ -1669,7 +1725,7 @@ const UI = (() => {
     if (se) se.addEventListener('click', () => {
       const s = Store.state.sessions.find((x) => x.id === se.getAttribute('data-id'));
       if (!s) return;
-      const d = Store.createUserDeck(s.name, s.cards);
+      const d = Store.createUserDeck(s.name, s.cards, s.commander, {format:s.format,sideboard:s.sideboard});
       location.hash = '#/mydeck/' + d.id;
     });
 

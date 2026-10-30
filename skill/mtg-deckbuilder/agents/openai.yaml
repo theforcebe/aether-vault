@@ -1,0 +1,6 @@
+interface:
+  display_name: "MTG Deckbuilder"
+  short_description: "Build decks with your cards and price useful upgrades"
+  default_prompt: "Use $mtg-deckbuilder to build or upgrade a Commander deck from my current collection, show cards available in other decks, and price missing upgrades."
+policy:
+  allow_implicit_invocation: true

@@ -43,6 +43,7 @@ const App = (() => {
     const el = root();
     let html = '';
     if (path === '#/dashboard' || path === '#/' || path === '' || path === '#/vault') html = UI.viewDashboard(params);
+    else if (path === '#/workbench') html = Workbench.render();
     else if (path === '#/collection') html = UI.viewCollection(params);
     else if (path === '#/decks' || path.startsWith('#/deck/')) html = UI.viewDecks();
     else if (path.startsWith('#/mydeck/')) html = UI.viewMyDeck(path.split('/')[2]);
@@ -57,7 +58,8 @@ const App = (() => {
     else if (path === '#/data') html = UI.viewData();
     else html = UI.viewDashboard(params);
     el.innerHTML = html;
-    UI.wire(el, path, params);
+    if (path === '#/workbench') Workbench.mount(el);
+    else { Workbench.close(); UI.wire(el, path, params); }
 
     document.querySelectorAll('.nav a').forEach((a) => {
       const href = a.getAttribute('href');
@@ -87,7 +89,7 @@ const App = (() => {
     });
     const moreBtn = document.getElementById('tab-more');
     const morePop = document.getElementById('tab-more-pop');
-    if (moreBtn) moreBtn.classList.toggle('active', ['#/collector', '#/import', '#/guide', '#/moves', '#/data', '#/coach'].includes(path));
+    if (moreBtn) moreBtn.classList.toggle('active', ['#/workbench', '#/collector', '#/import', '#/guide', '#/moves', '#/data', '#/coach'].includes(path));
     if (morePop) { morePop.hidden = true; if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false'); }
     const tmc = document.getElementById('tab-moves-count');
     if (tmc) tmc.textContent = n ? String(n) : '';
@@ -205,7 +207,9 @@ const App = (() => {
 
     render();
     heal();
-    (window.requestIdleCallback || setTimeout)(() => ensureData().then(() => { const p = parseHash().path; if (p === '#/build' || p === '#/guide') render(); }), 1200);
+    const warmData = () => ensureData().then(() => { const p = parseHash().path; if (p === '#/build' || p === '#/guide') render(); });
+    if (window.requestIdleCallback) window.requestIdleCallback(warmData, { timeout: 1200 });
+    else setTimeout(warmData, 1200);
     setInterval(() => { try { Sync.autosyncTick(); } catch (e) { /* quiet */ } }, 5000);
   }
 

@@ -5,14 +5,14 @@
 // Card images: cache-first with a size cap. APIs (Scryfall search/collection,
 // GitHub sync, EDHREC) are never intercepted; sync must always hit the network.
 
-const BUILD = '16';
+const BUILD = '19';
 const VERSION = 'av-v' + BUILD;
 const APP_CACHE = VERSION + '-app';
 const IMG_CACHE = VERSION + '-img';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest',
-  'css/app.css?v=' + BUILD,
-  ...['scryfall', 'rules', 'vector', 'analyze', 'builder', 'pilot', 'store', 'sync', 'ui', 'app'].map((f) => 'js/' + f + '.js?v=' + BUILD),
+  'css/app.css?v=' + BUILD, 'css/workbench.css?v=' + BUILD,
+  ...['scryfall', 'rules', 'vector', 'analyze', 'builder', 'pilot', 'store', 'sync', 'ui', 'workbench-core', 'workbench', 'app'].map((f) => 'js/' + f + '.js?v=' + BUILD),
   ...['collection', 'cards', 'decks', 'manifest'].map((f) => 'data/' + f + '.js?v=' + BUILD),
 ];
 
@@ -42,6 +42,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  if (url.origin === location.origin && url.pathname.startsWith('/api/')) return;
 
   if (url.origin === location.origin) {
     // revalidate every time so deploys land immediately; cache keeps offline working

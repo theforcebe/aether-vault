@@ -72,7 +72,7 @@ const Store = (() => {
   function deckOf() {
     const map = {};
     for (const d of state.userdecks) {
-      for (const c of d.cards) {
+      for (const c of deckCards(d)) {
         const k = norm(c.n);
         map[k] ||= [];
         if (!map[k].includes(d.name)) map[k].push(d.name);
@@ -81,7 +81,11 @@ const Store = (() => {
     return map;
   }
 
-  function card(n) { return state.cards[norm(n)] || null; }
+  function card(n) {
+    if(state.cards[norm(n)])return state.cards[norm(n)];
+    const f=state.resolved[n.toLowerCase()];
+    return f ? {...f,n:f.n || f.name || n,t:(f.t || '').replace(/\b[a-z]/g,x=>x.toUpperCase())} : null;
+  }
   function sidFor(n) {
     const k = norm(n);
     const c = state.cards[k];
@@ -107,6 +111,10 @@ const Store = (() => {
     return c && c.usd != null ? c.usd : 0;
   }
   function rowValue(r) { return unitPrice(r.n, r.sid, r.f) * r.q; }
+  function knownCardValue(n, sid) {
+    const p=priceEntry(sid || sidFor(n)), r=state.resolved[(n || '').toLowerCase()], c=card(n);
+    return p?.usd ?? p?.usd_foil ?? r?.usd ?? r?.usd_foil ?? c?.usd ?? null;
+  }
   function cardValue(n, sid) { return unitPrice(n, sid, ''); }
   function collectionTotal() { return rows().reduce((s, r) => s + rowValue(r), 0); }
 
@@ -269,11 +277,15 @@ const Store = (() => {
   // ---------- decks (all user decks) ----------
   function userDeck(id) { return state.userdecks.find((d) => d.id === id) || null; }
   function saveUserDecks() { save(LS.userdecks, state.userdecks); touch(); }
-  function createUserDeck(name, cards, commander) {
+  const deckFormat = d => d.format || 'commander';
+  const deckCards = d => d.cards.concat(deckFormat(d)==='standard' ? d.sideboard || [] : []);
+  function createUserDeck(name, cards, commander, options = {}) {
     const d = {
       id: 'u' + Date.now().toString(36) + Math.floor(Math.random() * 99),
       name: name || 'New deck',
-      commander: commander || '',
+      format: options.format || 'commander',
+      commander: options.format && options.format!=='commander' ? '' : commander || '',
+      sideboard: (options.sideboard || []).map(c=>({ n:c.n, q:c.q, sid:c.sid || sidFor(c.n) })),
       cards: (cards || []).map((c) => ({ n: c.n, q: c.q, sid: c.sid || sidFor(c.n) })),
       created: new Date().toISOString(),
     };
@@ -283,39 +295,46 @@ const Store = (() => {
   }
   function deleteUserDeck(id) { state.userdecks = state.userdecks.filter((d) => d.id !== id); saveUserDecks(); }
   function renameUserDeck(id, name) { const d = userDeck(id); if (d) { d.name = name; saveUserDecks(); } }
+  function setUserFormat(id, format) {
+    const d=userDeck(id); if(!d || !['commander','standard'].includes(format))return;
+    d.format=format; if(format!=='commander')d.commander=''; saveUserDecks();
+  }
   function setUserCommander(id, n) { const d = userDeck(id); if (d) { d.commander = n; saveUserDecks(); } }
-  function addToUserDeck(id, n, q) {
+  function addToUserDeck(id, n, q, zone = 'main') {
     const d = userDeck(id);
     if (!d) return;
-    const i = d.cards.findIndex((c) => norm(c.n) === norm(n));
-    if (i >= 0) d.cards[i].q += q || 1;
-    else d.cards.push({ n, q: q || 1, sid: sidFor(n) });
+    const cards = zone==='sideboard' ? (d.sideboard ||= []) : d.cards;
+    const i = cards.findIndex((c) => norm(c.n) === norm(n));
+    if (i >= 0) cards[i].q += q || 1;
+    else cards.push({ n, q: q || 1, sid: sidFor(n) });
     saveUserDecks();
   }
-  function setUserQty(id, n, q) {
+  function setUserQty(id, n, q, zone = 'main') {
     const d = userDeck(id);
     if (!d) return;
-    const i = d.cards.findIndex((c) => norm(c.n) === norm(n));
+    const cards = zone==='sideboard' ? (d.sideboard ||= []) : d.cards;
+    const i = cards.findIndex((c) => norm(c.n) === norm(n));
     if (i < 0) return;
-    if (q <= 0) d.cards.splice(i, 1);
-    else d.cards[i].q = q;
+    if (q <= 0) cards.splice(i, 1);
+    else cards[i].q = q;
     saveUserDecks();
   }
   function userDeckTotal(id) {
     const d = userDeck(id);
-    return d ? d.cards.reduce((s, c) => s + cardValue(c.n, c.sid || sidFor(c.n)) * c.q, 0) : 0;
+    return d ? deckCards(d).reduce((s, c) => s + cardValue(c.n, c.sid || sidFor(c.n)) * c.q, 0) : 0;
   }
   function deckView(id) {
     const d = userDeck(id);
     if (!d) return null;
-    const cmd = d.cards.find((c) => norm(c.n) === norm(d.commander));
+    const format=deckFormat(d), commander=format==='commander' ? d.commander || '' : '';
+    const cmd = d.cards.find((c) => norm(c.n) === norm(commander));
     const cmdFacts = d.commander ? card(d.commander) : null;
     return {
-      id: d.id, name: d.name, commander: d.commander,
-      commanderSid: cmd ? (cmd.sid || sidFor(cmd.n)) : '',
-      ci: cmdFacts ? (cmdFacts.ci || '') : '',
-      sub: d.commander ? 'Commander: ' + d.commander : 'No commander set',
-      cards: d.cards.map((c) => ({ ...c, src: norm(c.n) === norm(d.commander) ? 'commander' : (c.src || 'user') })),
+      id: d.id, name: d.name, format, commander, sideboard: d.sideboard || [],
+      commanderSid: cmd ? (cmd.sid || sidFor(cmd.n)) : format==='standard' && d.cards.length ? d.cards[0].sid || sidFor(d.cards[0].n) : '',
+      ci: format==='commander' && cmdFacts ? (cmdFacts.ci || '') : '',
+      sub: format==='standard' ? 'Standard · '+d.cards.reduce((s,c)=>s+c.q,0)+' main · '+(d.sideboard||[]).reduce((s,c)=>s+c.q,0)+' sideboard' : commander ? 'Commander: ' + commander : 'Commander · no commander set',
+      cards: d.cards.map((c) => ({ ...c, src: commander && norm(c.n) === norm(commander) ? 'commander' : (c.src==='commander' ? 'user' : c.src || 'user') })),
     };
   }
   function allDeckRefs() { return state.userdecks.map((d) => ({ key: d.id, name: d.name })); }
@@ -426,7 +445,9 @@ const Store = (() => {
   function missingFromCollection(cards) {
     const BAS = new Set(['plains', 'island', 'swamp', 'mountain', 'forest', 'wastes']);
     const out = [];
-    for (const c of cards) {
+    const combined=new Map();
+    for(const c of cards){const k=norm(c.n);if(combined.has(k))combined.get(k).q+=c.q;else combined.set(k,{...c});}
+    for (const c of combined.values()) {
       const nl = c.n.toLowerCase();
       if (BAS.has(nl) || nl.startsWith('snow-covered')) continue;
       const own = byName[norm(c.n)];
@@ -542,8 +563,8 @@ const Store = (() => {
   }
 
   // ---------- sessions ----------
-  function saveSession(name, cards) {
-    const s = { id: 's' + Date.now(), name, cards, created: new Date().toISOString() };
+  function saveSession(name, cards, options = {}) {
+    const s = { id: 's' + Date.now(), name, cards, ...options, created: new Date().toISOString() };
     state.sessions.push(s);
     save(LS.sessions, state.sessions);
     touch();
@@ -556,7 +577,7 @@ const Store = (() => {
   function missingSidNames() {
     const out = new Set();
     const check = (n, sid) => { if (!sid && !sidFor(n)) out.add(n); };
-    for (const d of state.userdecks) for (const c of d.cards) check(c.n, c.sid);
+    for (const d of state.userdecks) for (const c of deckCards(d)) check(c.n, c.sid);
     for (const s of state.sessions) for (const c of s.cards) check(c.n, c.sid);
     return [...out];
   }
@@ -621,15 +642,15 @@ const Store = (() => {
   function uniqueSids() {
     const s = new Set();
     for (const r of rows()) if (r.sid) s.add(r.sid);
-    for (const d of state.userdecks) for (const c of d.cards) if (c.sid) s.add(c.sid);
+    for (const d of state.userdecks) for (const c of deckCards(d)) if (c.sid) s.add(c.sid);
     return [...s];
   }
 
   return {
     state, norm, card, sidFor,
     rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
-    unitPrice, rowValue, cardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, collectorTitle, ownsName,
-    userDeck, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander,
+    unitPrice, rowValue, cardValue, knownCardValue, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, collectorTitle, ownsName,
+    userDeck, deckFormat, deckCards, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander, setUserFormat,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
     seedAvailable, importSeed,
     parseManaBoxCsv, uploadCollection, clearMyCollection, binderSummary, importBinderAsDeck,
