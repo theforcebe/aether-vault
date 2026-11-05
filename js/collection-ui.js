@@ -12,8 +12,11 @@ const CollectionUI=(()=>{
     const s=Workbench.collectionSources();let queued=0;try{queued=JSON.parse(localStorage.getItem(KEY)||'null')?.entries?.reduce((n,e)=>n+e.quantity,0)||0;}catch(_){}
     return `<header class="collection-heading"><div><h1>Your collection</h1><p>Browse your cards or add the exact editions you own.</p></div><div class="collection-actions"><button class="btn primary" data-collection-add${s.ready?'':' disabled'}>Add cards</button>${queued?`<button class="btn" data-collection-add>Review queue (${queued})</button>`:''}<button class="btn" data-collection-export${s.ready?'':' disabled'}>Export collection CSV</button></div><label class="collection-source">Active collection<select data-collection-source${s.ready?'':' disabled'}>${s.options.map(([v,t])=>`<option value="${v}"${v===s.mode?' selected':''}>${esc(t)}</option>`).join('')}</select></label>${s.error?`<p role="alert">${esc(s.error)}</p>`:''}</header>`;
   }
+  function copyAttributes(name,printing) {
+    return ` data-collection-copy="${esc(name)}" data-copy-printing="${esc(JSON.stringify(printing||null))}" aria-label="Add copies of ${esc(name)}, ${esc(P.label(printing))} to collection"`;
+  }
   function copyButton(name,printing) {
-    return `<button class="btn small collection-copy" data-collection-copy="${esc(name)}" data-copy-printing="${esc(JSON.stringify(printing||null))}" aria-label="Add copies of ${esc(name)}, ${esc(P.label(printing))} to collection"><span aria-hidden="true">＋</span> Add copies</button>`;
+    return `<button class="btn small collection-copy"${copyAttributes(name,printing)}><span aria-hidden="true">＋</span> Add copies</button>`;
   }
   function queueLocked() {return pending||saving||destination!==context.mode;}
   function selectedFinish() {return copyReference?.printing?.finish || modal.querySelector('[name="ca-finish"]:checked')?.value;}
@@ -170,5 +173,5 @@ const CollectionUI=(()=>{
     });
     document.addEventListener('change',async e=>{if(e.target.matches('[data-collection-source]'))try{await Workbench.useCollectionSource(e.target.value,true);}catch(err){UI.toast(err.message);App.refresh();}});
   }
-  return {header,install,open,copyButton};
+  return {header,install,open,copyButton,copyAttributes};
 })();

@@ -104,7 +104,8 @@ The queue shows the price for each selected finish; missing prices stay unpriced
 Closing the dialog retains your queue. Repeated save requests do not add a batch twice.
 The Decks **Bought** actions also open this edition picker before adding inventory.
 
-To add a card you already own, use **Add copies** on its Collection tile or list row.
+To add a card you already own, click its artwork or name in Collection, or use
+**Add copies** on its tile or list row. **Details** opens its full art and rules text.
 **Yes, queue this version** queues one more of that exact printing and finish.
 Expand **Change quantity, binder, or condition** to add several copies or choose their
 location; new copies default to Extras. **No, choose another version** searches that

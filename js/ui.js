@@ -326,18 +326,20 @@ const UI = (() => {
     const priceText=it=>val(it)==null?'Unknown':money(val(it));
     const ticker=it=>tickerHtml(it.n,it.sid,it.printing?.finish==='normal'?'':it.printing?.finish);
     const attrs=it=>' data-card="'+esc(it.n)+'" data-sid="'+esc(it.sid || '')+'"'+versionAttr(it.printing);
+    const copyAttrs=it=>CollectionUI.copyAttributes(it.n,it.printing);
+    const details=it=>'<button class="btn small collection-details" data-modal="'+esc(it.n)+'" aria-label="View details for '+esc(it.n)+'">Details</button>';
     let body='';
     if(mode==='list') {
       body='<div class="list-head"><span></span><span>Name</span><span>Version</span><span class="ra">Qty</span><span class="ra">Each</span><span></span></div>'+shown.map(it=>
-        '<div class="list-row"'+attrs(it)+' data-hover-sid="'+esc(it.sid || '')+'">'+thumb(it.sid)+
-        '<button class="list-n" data-modal="'+esc(it.n)+'">'+esc(it.n)+'</button><span class="list-sets">'+versionHtml(it.printing)+'</span>'+
+        '<div class="list-row"'+attrs(it)+' data-hover-sid="'+esc(it.sid || '')+'"><button class="collection-thumb"'+copyAttrs(it)+'>'+thumb(it.sid)+'</button>'+
+        '<button class="list-n"'+copyAttrs(it)+'>'+esc(it.n)+'</button><span class="list-sets">'+versionHtml(it.printing)+'</span>'+
         '<span class="ra dim list-qty">×'+it.q+'</span><span class="ra list-p"><span class="list-value">'+priceText(it)+'</span>'+ticker(it)+'</span>'+
-        '<div class="collection-row-actions">'+CollectionUI.copyButton(it.n,it.printing)+'<button class="btn small m-act" data-move="'+esc(it.n)+'" aria-label="Add '+esc(it.n)+' to a deck">To deck</button></div></div>').join('');
+        '<div class="collection-row-actions">'+CollectionUI.copyButton(it.n,it.printing)+details(it)+'<button class="btn small m-act" data-move="'+esc(it.n)+'" aria-label="Add '+esc(it.n)+' to a deck">To deck</button></div></div>').join('');
     } else {
-      body='<div class="col-grid">'+shown.map(it=>'<div class="c-card" draggable="true"'+attrs(it)+'>'+cardImgHtml(it.n,it.sid)+
-        '<div class="c-edition"><strong>'+esc(it.n)+'</strong>'+versionHtml(it.printing)+'</div><div class="c-meta"><span class="c-qty">×'+it.q+'</span><span class="c-price">'+priceText(it)+'<small> each</small></span>'+
+      body='<div class="col-grid">'+shown.map(it=>'<div class="c-card" draggable="true"'+attrs(it)+'><button class="collection-card-open"'+copyAttrs(it)+'>'+cardImgHtml(it.n,it.sid)+
+        '<div class="c-edition"><strong>'+esc(it.n)+'</strong>'+versionHtml(it.printing)+'</div></button><div class="c-meta"><span class="c-qty">×'+it.q+'</span><span class="c-price">'+priceText(it)+'<small> each</small></span>'+
         '<button class="m-act icon" data-move="'+esc(it.n)+'" aria-label="Add '+esc(it.n)+' to a deck">&#8942;</button></div>'+
-        '<div class="c-copy-actions">'+CollectionUI.copyButton(it.n,it.printing)+'</div>'+(ticker(it)?'<div class="c-tick">'+ticker(it)+'</div>':'')+badgeRow(it)+'</div>').join('')+'</div>';
+        '<div class="c-copy-actions">'+CollectionUI.copyButton(it.n,it.printing)+details(it)+'</div>'+(ticker(it)?'<div class="c-tick">'+ticker(it)+'</div>':'')+badgeRow(it)+'</div>').join('')+'</div>';
     }
     const sel = (name, opts, cur, label) =>
       '<select data-filter="' + name + '"><option value="">' + label + '</option>' +
@@ -1851,6 +1853,7 @@ const UI = (() => {
     });
 
     $$('.c-card .card-img, .list-row .thumb', root).forEach((el) => {
+      if (el.closest('[data-collection-copy]')) return;
       el.addEventListener('click', () => {
         const holder = el.closest('[data-card]');
         openModal(holder ? holder.getAttribute('data-card') : el.getAttribute('data-name'),elementPrinting(el));
