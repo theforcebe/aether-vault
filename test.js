@@ -11,7 +11,7 @@ const ok = (cond, label) => {
 const section = (name) => console.log('\n[' + name + ']');
 
 // ---------- shims ----------
-global.CollectionUI={header:()=>''};
+global.Workbench={collectionSources:()=>({mode:'browser',ready:true,options:[['browser','Browser collection']]})};
 global.window = {Printings:require('./js/printings')};
 const mem = {};
 global.localStorage = { getItem: (k) => mem[k] ?? null, setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; }, get length() { return Object.keys(mem).length; }, key: (i) => Object.keys(mem)[i] };
@@ -36,8 +36,9 @@ try { require('./data/combos.js'); } catch (e) { /* optional bundle */ }
 try { require('./data/commanders-cards.js'); } catch (e) { /* optional bundle */ }
 const fs = require('fs');
 window.WorkbenchCore=require('./js/workbench-core');
-for (const [f, g] of [['scryfall', 'Scry'], ['rules', 'Rules'], ['vector', 'Vec'], ['store', 'Store'], ['sync', 'Sync'], ['analyze', 'Analyze'], ['builder', 'Builder'], ['pilot', 'Pilot'], ['ui', 'UI']]) {
-  eval(fs.readFileSync('js/' + f + '.js', 'utf8').replace('const ' + g + ' =', 'global.' + g + ' ='));
+window.CollectionAdditions=require('./js/collection-additions');
+for (const [f, g] of [['scryfall', 'Scry'], ['rules', 'Rules'], ['vector', 'Vec'], ['store', 'Store'], ['sync', 'Sync'], ['analyze', 'Analyze'], ['builder', 'Builder'], ['pilot', 'Pilot'], ['ui', 'UI'], ['collection-ui', 'CollectionUI']]) {
+  eval(fs.readFileSync('js/' + f + '.js', 'utf8').replace('const ' + g + ' =', 'global.' + g + ' =').replace('const ' + g + '=', 'global.' + g + '='));
 }
 global.App = { go: () => {}, refresh: () => {}, render: () => {}, ensureData: () => Promise.resolve() };
 

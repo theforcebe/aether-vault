@@ -150,5 +150,17 @@ const Scry = (() => {
       return {...result,data:result.data.filter(c=>c.games?.includes('paper')).map(c=>({...c,_fetchedAt:new Date().toISOString()}))};
     }
   }
-  return { img, pricesByIds, resolveNames, cardById, cardByName, fullCards, searchPrintings };
+  async function printingById(id) {
+    if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id||''))throw Error('The collection has no exact printing ID. Choose the edition you own.');
+    for(let attempt=0;attempt<3;attempt++) {
+      await throttled('get');
+      const r=await fetch(API+'/cards/'+id,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000)});
+      if((r.status===429||r.status>=500)&&attempt<2){await sleep(1000*(attempt+1));continue;}
+      const c=await r.json();
+      if(!r.ok)throw Error(c.details||'Could not verify this printing. Try again or choose another edition.');
+      if(c.id!==id||!c.games?.includes('paper'))throw Error('The exact paper printing could not be verified. Choose your edition.');
+      return {...c,_fetchedAt:new Date().toISOString()};
+    }
+  }
+  return { img, pricesByIds, resolveNames, cardById, cardByName, fullCards, searchPrintings, printingById };
 })();

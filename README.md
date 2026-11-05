@@ -104,6 +104,20 @@ The queue shows the price for each selected finish; missing prices stay unpriced
 Closing the dialog retains your queue. Repeated save requests do not add a batch twice.
 The Decks **Bought** actions also open this edition picker before adding inventory.
 
+To add a card you already own, use **Add copies** on its Collection tile or list row.
+**Yes, queue this version** queues one more of that exact printing and finish.
+Expand **Change quantity, binder, or condition** to add several copies or choose their
+location; new copies default to Extras. **No, choose another version** searches that
+card's editions so you can choose another set, artwork, collector number, or finish.
+Close the dialog to continue browsing, then use **Review queue** to save the batch.
+Queuing does not change ownership until you save, and **To deck** remains a separate action.
+
+Both add flows use the selected printing's Scryfall `finishes` list. Non-foil-only
+editions never offer foil; foil-only and etched-only editions offer only their supported
+finishes. Availability is independent of pricing: a supported but unpriced finish stays
+available with an unknown price. If an imported version lacks an exact ID or its finish
+cannot be verified, choose the correct edition instead of copying an assumed version.
+
 The **Active collection** selector on Collection is shared with Workbench:
 
 - **Collection on this computer** uses the local companion's saved ManaBox baseline.

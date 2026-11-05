@@ -4,6 +4,19 @@
   const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
   const revision = s => s?.revision || s?.sha256 || s?.importedAt || 'empty';
   const assert = (ok,message) => {if(!ok)throw Error(message);};
+  // Finish availability belongs to an exact printing, not its price or card name.
+  function availableFinishes(card) {
+    if(!card?.games?.includes('paper')||!Array.isArray(card.finishes))return [];
+    return ['nonfoil','foil','etched'].filter(f=>card.finishes.includes(f)).map(f=>f==='nonfoil'?'normal':f);
+  }
+  function verifyFinish(card,finish) {
+    assert(availableFinishes(card).includes(finish),'This printing is not available in the selected finish. Choose another edition or finish.');
+    return finish;
+  }
+  function exactCopy(card,printing) {
+    assert(printing?.id&&card?.id===printing.id,'The exact owned printing could not be verified. Choose your version.');
+    return verifyFinish(card,printing.finish);
+  }
   function validate(entries) {
     assert(Array.isArray(entries)&&entries.length>0&&entries.length<=200,'Queue between 1 and 200 versions.');
     return entries.map(e=>{
@@ -33,7 +46,7 @@
       const c=byId.get(e.id);
       assert(c&&typeof c.name==='string'&&c.name.trim()&&c.set&&c.collector_number!=null,'A printing could not be verified. Search for that edition again.');
       assert(c.games?.includes('paper'),'Only paper cards can be added to this collection.');
-      assert(c.finishes?.includes(e.finish==='normal'?'nonfoil':e.finish),'This printing is not available in the selected finish.');
+      verifyFinish(c,e.finish);
       return {name:c.name,quantity:e.quantity,scryfallId:c.id,set:c.set.toUpperCase(),setName:c.set_name||'',collectorNumber:String(c.collector_number),finish:e.finish,binder:e.binder,binderType:e.binderType,proxy:false,language:c.lang||'en',condition:e.condition};
     });
     const records=(snapshot?.records||[]).map(r=>({...r})),index=new Map();
@@ -52,5 +65,5 @@
     const header=['Name','Quantity','Scryfall ID','Set code','Collector number','Foil','Binder Name','Binder Type','Proxy','Language','Condition'];
     return [header,...(snapshot?.records||[]).map(r=>[r.name,r.quantity,r.scryfallId,r.set,r.collectorNumber,r.finish||'normal',r.binder,r.binderType,!!r.proxy,r.language||'en',r.condition||'near_mint'])].map(row=>row.map(quote).join(',')).join('\r\n');
   }
-  return {validate,revision,receipt,apply,toRows,fromBrowser,csv};
+  return {validate,revision,receipt,apply,toRows,fromBrowser,csv,availableFinishes,verifyFinish,exactCopy};
 });

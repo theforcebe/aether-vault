@@ -43,7 +43,7 @@ test('CSV export roundtrips exact editions, finishes, quantities, locations, lan
 });
 function browser(mode='browser',seed={}) {
   const memory={av_collection_source:mode,...seed},ctx=vm.createContext({window:{Printings:P,WorkbenchCore:C,CollectionAdditions:A},location:{hash:'#/collection'},localStorage:{getItem:k=>memory[k]||null,setItem:(k,v)=>{if(ctx.full)throw Error('Storage full');memory[k]=v;},removeItem:k=>delete memory[k]},console,setTimeout,clearTimeout,AbortSignal,crypto,URL,URLSearchParams,fetch:async url=>({ok:true,headers:{get:()=> 'application/json'},json:async()=>String(url).endsWith('/status')?{local:true}:{snapshot:initial(),ledger}})});
-  for(const [file,name] of [['store','Store'],['workbench','Workbench'],['collection-ui','CollectionUI']])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+file+'.js'),'utf8')+';globalThis.'+name+'='+name,ctx);
+  for(const [file,name] of [['store','Store'],['builder','Builder'],['workbench','Workbench'],['collection-ui','CollectionUI']])vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/'+file+'.js'),'utf8')+';globalThis.'+name+'='+name,ctx);
   return {ctx,memory};
 }
 test('Local collection view is shared by Collection/Workbench without replacing or syncing browser data',async()=>{
@@ -79,6 +79,52 @@ test('Search requests paper printings with a set constraint, preserves supported
   let requested,status=200,data={data:[card,etched],total_cards:2,has_more:false};const ctx=vm.createContext({URLSearchParams,AbortSignal,setTimeout,fetch:async url=>{requested=url;return {ok:status<400,status,json:async()=>data};}});vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/scryfall.js'),'utf8')+';this.S=Scry;',ctx);
   const result=await ctx.S.searchPrintings('Test Card','TST');assert.equal(new URL(requested).searchParams.get('unique'),'prints');assert.match(new URL(requested).searchParams.get('q'),/game:paper lang:en set:TST/);assert.equal(result.data[1].finishes[0],'etched');
   status=404;assert.equal((await ctx.S.searchPrintings('Absent')).data.length,0);status=400;data={details:'Invalid query'};await assert.rejects(()=>ctx.S.searchPrintings('Test'),/Invalid query/);
+});
+test('Finish availability hides unsupported non-foil, foil, etched and digital versions without using prices as availability',()=>{
+  assert.deepEqual(A.availableFinishes({...card,finishes:['nonfoil'],foil:true,prices:{usd_foil:'99.00'}}),['normal']);
+  assert.deepEqual(A.availableFinishes({...card,finishes:['foil'],prices:{usd_foil:null}}),['foil']);
+  assert.deepEqual(A.availableFinishes(etched),['etched']);
+  assert.deepEqual(A.availableFinishes({...card,finishes:undefined}),[]);
+  assert.deepEqual(A.availableFinishes({...card,games:['arena']}),[]);
+  assert.throws(()=>A.verifyFinish({...card,finishes:['nonfoil']},'foil'),/not available/);
+  assert.throws(()=>A.verifyFinish({...card,finishes:['foil']},'normal'),/not available/);
+});
+test('Copy shortcut preserves the exact printing and finish; unknown or mismatched versions require selection',()=>{
+  assert.equal(A.exactCopy(card,{id,finish:'foil'}),'foil');
+  assert.throws(()=>A.exactCopy(card,{id:other,finish:'foil'}),/exact owned printing/);
+  assert.throws(()=>A.exactCopy(card,null),/exact owned printing/);
+  assert.throws(()=>A.exactCopy({...card,finishes:['nonfoil']},{id,finish:'foil'}),/not available/);
+  assert.throws(()=>A.exactCopy(etched,{id:other,finish:'normal'}),/not available/);
+});
+test('Copy actions encode the actual edition and finish and safely render card names',()=>{
+  const b=browser(),html=b.ctx.CollectionUI.copyButton('A "Card" <name>',{id,finish:'foil',set:'TST',collectorNumber:'12'});
+  assert.match(html,/Add copies/);assert.match(html,/data-copy-printing=/);assert.match(html,/&quot;finish&quot;:&quot;foil&quot;/);assert.match(html,/&lt;name&gt;/);assert.ok(!html.includes('<name>'));
+});
+test('Exact printing lookup never substitutes a different printing and retains authoritative finish support',async()=>{
+  let status=200,data={...card,finishes:['nonfoil']},calls=[];
+  const ctx=vm.createContext({URLSearchParams,AbortSignal,setTimeout,fetch:async url=>{calls.push(url);return {ok:status===200,status,json:async()=>data};}});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/scryfall.js'),'utf8')+';this.S=Scry;',ctx);
+  const found=await ctx.S.printingById(id);assert.equal(calls[0],'https://api.scryfall.com/cards/'+id);assert.deepEqual(A.availableFinishes(found),['normal']);assert.ok(found._fetchedAt);
+  data={...card,id:other};await assert.rejects(()=>ctx.S.printingById(id),/exact paper printing/);
+  status=404;data={details:'Printing not found'};await assert.rejects(()=>ctx.S.printingById(id),/Printing not found/);
+  await assert.rejects(()=>ctx.S.printingById(''),/no exact printing ID/);
+});
+test('Adding existing and alternate editions updates Builder, Decks, Standard coverage, exact values and protected inventory',async()=>{
+  const b=browser('browser',{av_mycollection:JSON.stringify({label:'Owned cards',rows:A.toRows(initial())})});await b.ctx.Workbench.prepareCollection();
+  const S=b.ctx.Store,W=b.ctx.Workbench,B=b.ctx.Builder;
+  const draft={name:'Standard copies',format:'standard',cards:[{n:'Test Card',q:3,zone:'main'},{n:'Test Card',q:1,zone:'sideboard'}]};
+  const saved=S.createUserDeck('Saved deck',[{n:'Test Card',q:3}],'',{format:'standard',sideboard:[{n:'Test Card',q:1}]});
+  const beforeDeck=JSON.stringify(saved),before=B.compare([{n:'Test Card',q:4}]);assert.equal(before.needCount,2);
+  async function add(entries,cards){const current=await W.collectionContext();return W.addToCollection(entries,cards,{...options(current.snapshot),mode:'browser'});}
+  await add([entry()],[card]);assert.equal(S.rows().length,1);assert.equal(S.rows()[0].q,3);assert.equal(B.compare([{n:'Test Card',q:4}]).needCount,1);
+  await add([entry({finish:'foil'})],[card]);assert.equal(S.rows().length,2);assert.equal(S.byName.testcard.qty,4);assert.equal(B.compare([{n:'Test Card',q:4}]).needCount,0);assert.equal(S.missingFromCollection(S.deckCards(saved)).length,0);assert.equal(S.collectionTotal(),8);
+  const different={...card,id:other,set:'alt',collector_number:'91',finishes:['nonfoil'],prices:{usd:'2.00'}};
+  await add([entry({id:other,binder:'Protected',binderType:'deck'})],[different]);
+  const current=await W.collectionContext(),inv=C.inventory(current.snapshot,current.ledger);
+  assert.equal(S.rows().length,3);assert.equal(S.byName.testcard.qty,5);assert.equal(inv.get('Test Card').available,4);
+  assert.equal(C.coverage(draft.cards,inv,true)[0].missing,0);assert.equal(C.coverage([{n:'Test Card',q:5,zone:'main'}],inv,true)[0].missing,1);
+  const exact=P.coverage([{n:'Test Card',q:2,printing:{id,finish:'foil',set:'TST',collectorNumber:'12'},zone:'main'}],inv,{[id]:card});assert.equal(exact[0].owned,1);assert.equal(exact[0].notOwned,1);assert.equal(exact[0].unitCents,500);
+  assert.equal(JSON.stringify(S.userDeck(saved.id)),beforeDeck);
 });
 test('Local addition API verifies all versions, persists once, rejects conflicts and foreign origins, and keeps files private',async()=>{
   const f=fixture(),port=18789;let calls=0;const server=createServer({port,vaultRoot:f.dir,cacheRoot:path.join(f.dir,'cache'),api:async(url,opts)=>{calls++;return {data:JSON.parse(opts.body).identifiers.map(e=>e.id===id?card:etched),not_found:[]};}});await new Promise(r=>server.listen(port,'127.0.0.1',r));
