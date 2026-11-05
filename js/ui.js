@@ -277,8 +277,9 @@ const UI = (() => {
   }
 
   function viewCollection(params) {
+    const collectionHeader=CollectionUI.header();
     if (!Store.hasCollection()) {
-      return '<div class="onboard"><h1>No collection loaded</h1>' +
+      return collectionHeader+'<div class="onboard"><h1>No collection loaded</h1>' +
         '<p class="dim">Upload a ManaBox export to browse it here with binders, foils, and live prices.</p>' +
         '<div class="onboard-grid"><label class="onboard-card" for="file-csv"><strong>Upload ManaBox CSV</strong><span class="dim">Parsed in your browser. Nothing is uploaded to a server.</span></label>' +
         (Store.seedAvailable() && !Store.state.seeded ? '<button class="onboard-card" id="seed-import"><strong>Load the built-in vault</strong><span class="dim">Keanen’s collection and decks, one-time import.</span></button>' : '') +
@@ -342,7 +343,7 @@ const UI = (() => {
       '<select data-filter="' + name + '"><option value="">' + label + '</option>' +
       opts.map((o) => '<option ' + (cur === o ? 'selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>';
 
-    return '<div class="filter-bar">' +
+    return collectionHeader+'<div class="filter-bar">' +
       '<input id="col-search" type="search" placeholder="Search ' + Object.keys(agg).length + ' cards" value="' + esc(params.q || '') + '">' +
       sel('color', ['W', 'U', 'B', 'R', 'G', 'C'], color, 'Color') +
       sel('type', ['Creature', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Planeswalker', 'Land'], type, 'Type') +
@@ -1330,7 +1331,7 @@ const UI = (() => {
     $$('.chip[data-series]', root).forEach((c) => c.addEventListener('click', () => App.go('#/dashboard', { series: c.getAttribute('data-series') })));
     const wsc = $('#ws-clear', root);
     if (wsc) wsc.addEventListener('click', () => sheet('Remove your uploaded collection from this browser?', [
-      { label: 'Remove collection', cb: () => { Store.clearMyCollection(); toast('Collection removed.'); App.refresh(); } }]));
+      { label: 'Remove collection', cb: () => { Store.clearMyCollection(); Workbench.useCollectionSource('browser',true).catch(e=>toast(e.message)); toast('Browser collection removed.'); App.refresh(); } }]));
 
     const seed = $('#seed-import', root);
     if (seed) seed.addEventListener('click', () => {
@@ -1470,8 +1471,8 @@ const UI = (() => {
       const inDeck = dv2 ? Store.deckCards(dv2).filter(c=>Store.norm(c.n)===Store.norm(n)).reduce((s,c)=>s+c.q,0) : 1;
       const need = Math.max(1, inDeck - have);
       sheet('Did you buy ' + n + '?', [{
-        label: 'Yes, add ' + need + ' to my collection',
-        cb: () => { Store.addPurchased([{ n, q: need }]); toast(n + ' added to your collection.'); App.refresh(); },
+        label: 'Choose the edition and finish for ' + need + ' copies',
+        cb: () => { CollectionUI.open([{n,q:need}]); },
       }]);
     }));
     const buyAll = $('#buy-all', root);
@@ -1480,8 +1481,8 @@ const UI = (() => {
       const missing = Store.missingFromCollection(Store.deckCards(dv2));
       const total = missing.reduce((s, m) => s + m.unit * m.q, 0);
       sheet('Add all ' + missing.reduce((s, m) => s + m.q, 0) + ' missing cards (' + money(total) + ') to your collection?', [{
-        label: 'Yes, I bought them all',
-        cb: () => { Store.addPurchased(missing); toast('Collection updated. They now count as owned everywhere.'); App.refresh(); },
+        label: 'Choose the editions and finishes I bought',
+        cb: () => { CollectionUI.open(missing); },
       }]);
     });
     const dlm = $('#dl-missing', root);

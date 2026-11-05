@@ -139,7 +139,7 @@ const App = (() => {
       if (!f) return;
       const rd = new FileReader();
       rd.onload = () => {
-        try { Store.importBackup(JSON.parse(rd.result)); UI.toast('Backup restored.'); render(); }
+        try { Store.importBackup(JSON.parse(rd.result)); Workbench.useCollectionSource('browser',true).catch(e=>UI.toast(e.message)); UI.toast('Backup restored.'); render(); }
         catch (err) { UI.toast('That file is not an Aether Vault backup.'); }
       };
       rd.readAsText(f);
@@ -157,12 +157,13 @@ const App = (() => {
           const doUpload = (keepPurchased) => {
             try {
               const res = Store.uploadCollection(rd.result, label, { keepPurchased });
+              Workbench.useCollectionSource('browser',true).catch(e=>UI.toast(e.message));
               UI.toast('Loaded ' + res.rows + ' rows.' + (res.kept ? ' Kept ' + res.kept + ' purchased cards.' : '') + ' Your decks are untouched.');
               go('#/collection', {});
               render();
             } catch (err) { UI.toast(err.message || 'Could not read that CSV.'); }
           };
-          const purchasedRows = Store.hasCollection() ? Store.rows().filter((r) => r.b === 'Purchased').length : 0;
+          const purchasedRows = (Store.state.mycollection?.rows || []).filter(r=>r.b==='Purchased').length;
           if (purchasedRows > 0) {
             UI.sheet('This replaces your collection with the new export. You have ' + purchasedRows + ' cards marked Bought in this app. Keep them if you have not scanned them into ManaBox yet.', [
               { label: 'Replace, keep my ' + purchasedRows + ' purchased cards', cb: () => doUpload(true) },
@@ -205,8 +206,9 @@ const App = (() => {
       navigator.serviceWorker.register('sw.js').catch(() => { /* fine without */ });
     }
 
+    CollectionUI.install();
     render();
-    heal();
+    Workbench.prepareCollection().then(()=>{render();heal();}).catch(e=>UI.toast(e.message));
     const warmData = () => ensureData().then(() => { const p = parseHash().path; if (p === '#/build' || p === '#/guide') render(); });
     if (window.requestIdleCallback) window.requestIdleCallback(warmData, { timeout: 1200 });
     else setTimeout(warmData, 1200);

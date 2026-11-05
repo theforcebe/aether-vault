@@ -11,6 +11,7 @@ const ok = (cond, label) => {
 const section = (name) => console.log('\n[' + name + ']');
 
 // ---------- shims ----------
+global.CollectionUI={header:()=>''};
 global.window = {Printings:require('./js/printings')};
 const mem = {};
 global.localStorage = { getItem: (k) => mem[k] ?? null, setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; }, get length() { return Object.keys(mem).length; }, key: (i) => Object.keys(mem)[i] };

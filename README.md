@@ -92,6 +92,43 @@ Missing finish prices remain **Unknown**; they never fall back to another finish
 or another printing. USD references exclude condition, language premiums, shipping,
 tax, and stock verification. Draft selections do not reserve or move physical cards.
 
+## Adding cards to your collection
+
+Use **Collection → Add cards**, or **Add cards to collection** in Workbench.
+Search a card name, optionally enter a set code, and choose the printing by its
+artwork, full set name, and collector number. Choose a supported non-foil, foil,
+or etched finish, quantity, binder, and condition. **Queue this version** lets you
+continue searching and add several different cards or editions in one batch.
+The queue shows the price for each selected finish; missing prices stay unpriced.
+**Add cards to collection** saves the batch and updates Collection and Workbench.
+Closing the dialog retains your queue. Repeated save requests do not add a batch twice.
+The Decks **Bought** actions also open this edition picker before adding inventory.
+
+The **Active collection** selector on Collection is shared with Workbench:
+
+- **Collection on this computer** uses the local companion's saved ManaBox baseline.
+  Additions update `knowledge/collection/latest.json`, with an immutable copy of the
+  previous JSON in `knowledge/collection/snapshots`. Original CSV archives, their
+  source hash, and `allocations.json` stay intact. Manual additions have their own
+  revision and receipt history. This local inventory is not sent through browser sync.
+- **Browser collection** saves to the existing browser collection and its backup/sync
+  settings. It works on the hosted site too. Your separate browser inventory is retained
+  when you view the collection on this computer.
+- **Workbench upload** edits a loaded Workbench CSV override and saves it in Workbench
+  backups. It leaves the saved collection on this computer intact.
+
+**Export collection CSV** downloads the active, updated collection with printing IDs,
+finishes, quantities, locations, languages, and conditions. Keep this export when moving
+between devices. A later full ManaBox import replaces its destination; make sure new
+manual additions are in that export first. Browser CSV uploads select the browser source;
+Workbench CSV uploads select the Workbench source. Free/protected binder rules continue
+to apply to new copies, and adding to a draft never changes physical ownership.
+
+Search currently lists English paper printings. Scryfall prices are USD market references,
+not condition-adjusted appraisals. Card search needs internet access; a failed save keeps
+the queue for retry. If another tab updates the collection, use **Refresh collection**
+in the dialog, review the queue, then save again.
+
 ## Privacy and checks
 
 `knowledge/collection`, `knowledge/cache`, `knowledge/quotes`, and `knowledge/reviews`
@@ -105,6 +142,7 @@ node tools/mtg.test.js
 node tools/workbench.test.js
 node tools/standard.test.js
 node tools/printings.test.js
+node tools/collection-additions.test.js
 ```
 
 Responsive QA covers 320, 390, 768, and 1440 pixel widths, with separate list prices,

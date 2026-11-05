@@ -1,6 +1,7 @@
 /* Aether Vault Workbench. Drafts are independent of physical allocations and legacy sync. */
 const Workbench = (() => {
   'use strict';
+  const A=window.CollectionAdditions;
   const C = window.WorkbenchCore, P = window.Printings, STORAGE = 'av_workbench_v1';
   const esc = s => String(s ?? '').replace(/[&<>"']/g, x => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]));
   const money = c => c == null ? 'Unknown' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(c / 100);
@@ -12,16 +13,16 @@ const Workbench = (() => {
   let snapshot = null, ledger = { schemaVersion: 1, availableBinders: ['Extras', 'Purchased'], decks: [] }, audit = {}, custom = saved?.custom || null;
   let local = false, initialized = false, loading = false, facts = {}, byId = {}, inventory, catalog = [], undo = [], report = null, comboResult = null;
   let comboBusy = false, comboError = '', comboGeneration = 0;
-  let note = '', busy = '', selected = '', dialog = null, loadPromise, hydrationErrors = [], hydrating = false, inventoryVersion = 0;
+  let note = '', busy = '', selected = '', dialog = null, loadPromise, hydrationErrors = [], hydrating = false, pendingFullHydration = false, inventoryVersion = 0;
   const pendingNames = new Set(), pendingPrintings = new Set(), preferredVersions = new Map();
-  let inspection=null;
+  let inspection=null, collectionMode=localStorage.getItem('av_collection_source') || (custom?'custom':''), collectionError='';
   const filters = { search: '', binder: '', type: '', role: '', colors: '', availability: 'all', mv: '', maxPrice: '', sort: 'name', finish: '', set: '', rarity: '', fit: false, legal: false, view: 'art', page: 1 };
   let tab = 'library', group = 'type', mobileFiltersOpen = false, addZone = 'main';
   const standard = () => C.formatOf(draft)==='standard';
   const coverage = () => C.coverage(draft.cards, inventory || C.inventory(null,ledger), standard());
   const visible = () => location.hash.split('?')[0] === '#/workbench';
   const fact = n => facts[C.key(n)];
-  const sourceLabel = () => custom ? snapshot?.source || 'Uploaded collection' : local ? 'Saved ManaBox baseline' : 'Browser collection';
+  const sourceLabel = () => collectionMode==='custom' ? 'Workbench upload' : collectionMode==='local' ? 'Collection on this computer' : 'Browser collection';
   function persist() {
     try { localStorage.setItem(STORAGE, JSON.stringify({ version: 1, drafts, active: draft.id, custom })); return true; }
     catch (_) { note = 'Browser storage is full. Your changes are still open; download a Workbench backup now.'; return false; }
@@ -33,13 +34,52 @@ const Workbench = (() => {
   async function api(endpoint, body, timeout = 180000) {
     const r = await fetch('/api/workbench/' + endpoint, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeout), cache: 'no-store' });
     if (!(r.headers.get('content-type') || '').includes('application/json')) throw Error('Start the local Workbench companion to use this feature.');
-    const data = await r.json(); if (!r.ok) throw Error(data.error || 'Request failed (' + r.status + ')'); return data;
+    const data = await r.json(); if (!r.ok) {const error=Error(data.error || 'Request failed (' + r.status + ')');error.status=r.status;throw error;} return data;
   }
-  function adopt(v) { snapshot = v.snapshot; ledger = v.ledger; audit = v.audit || {}; inventoryVersion++; report = null; rebuild(); }
+  function adopt(v) { snapshot = v.snapshot; ledger = v.ledger; audit = v.audit || {}; inventoryVersion++; report = null; if(hydrating&&visible())pendingFullHydration=true; Store.setCollectionView(collectionMode==='browser'?null:snapshot,sourceLabel()); rebuild(); }
   function browserCollection() {
-    const records = Store.rows().map(r => ({ name: r.n, quantity: r.q, scryfallId: r.sid, set: r.s, collectorNumber: r.cn, finish: r.f || 'normal', binder: r.b, binderType: r.bt || 'binder', proxy: r.proxy === true }));
-    return { snapshot: { schemaVersion: 1, source: Store.collectionLabel(), records, importedAt: Store.state.mycollection?.uploaded }, ledger: { schemaVersion: 1, availableBinders: ['Extras', 'Purchased'], decks: [...new Set(records.filter(r => r.binderType === 'deck').map(r => r.binder))].map((binder, i) => ({ id: 'browser-' + i, name: binder, binder, mode: 'binder', status: 'inferred' })) } };
+    const s=A.fromBrowser(Store.state.mycollection),records=s.records;
+    return {snapshot:s,ledger:{schemaVersion:1,availableBinders:['Extras','Purchased'],decks:[...new Set(records.filter(r=>r.binderType==='deck').map(r=>r.binder))].map((binder,i)=>({id:'browser-'+i,name:binder,binder,mode:'binder',status:'inferred'}))}};
   }
+  async function useCollectionSource(mode,refresh=false) {
+    if(!['local','browser','custom'].includes(mode))throw Error('Choose a collection source.');
+    let next;
+    if(mode==='local'){if(!local)throw Error('Open the local companion to use the collection on this computer.');next=await api('vault');}
+    else if(mode==='custom'){if(!custom)throw Error('No Workbench upload is loaded.');next=custom;}
+    else next=browserCollection();
+    localStorage.setItem('av_collection_source',mode);collectionMode=mode;collectionError='';adopt(next);
+    if(refresh){App.refresh();if(visible())hydrate();}
+  }
+  async function collectionContext(refresh=false) {
+    await init();
+    if(refresh){
+      if(collectionMode==='browser')Store.reloadBrowserCollection();
+      if(collectionMode==='custom'){const latest=JSON.parse(localStorage.getItem(STORAGE)||'null');if(!latest?.custom)throw Error('The Workbench upload changed. Select your active collection again.');custom=latest.custom;}
+      await useCollectionSource(collectionMode);
+    }
+    if(collectionError)throw Error(collectionError);
+    return {mode:collectionMode,label:sourceLabel(),snapshot,ledger,revision:A.revision(snapshot)};
+  }
+  function collectionSources() {
+    return {mode:collectionMode,ready:initialized,error:collectionError,options:[...(local?[['local','Collection on this computer']]:[]),['browser','Browser collection'],...(custom?[['custom','Workbench upload']]:[])]};
+  }
+  async function addToCollection(entries,cards,options) {
+    await init();
+    if(collectionError)throw Error(collectionError);
+    if(options.mode!==collectionMode)throw Error('The active collection changed. Reopen Add cards to review the destination.');
+    let result;
+    if(collectionMode==='local'){result=await api('collection-add',{entries,...options});adopt(result);cacheCards(result.cards||cards);}
+    else {
+      const base=collectionMode==='browser'?A.fromBrowser(JSON.parse(localStorage.getItem('av_mycollection')||'null')):JSON.parse(localStorage.getItem(STORAGE)||'null')?.custom?.snapshot;
+      result=A.apply(base,entries,cards,options);
+      if(collectionMode==='browser'){Store.saveCollectionSnapshot(result.snapshot);adopt(browserCollection());}
+      else {const next={...custom,snapshot:result.snapshot};const disk=JSON.parse(localStorage.getItem(STORAGE)||'null')||{};localStorage.setItem(STORAGE,JSON.stringify({...disk,version:1,drafts:disk.drafts||drafts,active:disk.active||draft.id,custom:next}));custom=next;adopt(next);}
+      cacheCards(cards);
+    }
+    try{localStorage.setItem('av_collection_changed',JSON.stringify({mode:collectionMode,revision:A.revision(result.snapshot),at:Date.now()}));}catch(_){/* Inventory was already saved; notification is optional. */}
+    note=result.added+' copies saved to '+sourceLabel()+'.';return result;
+  }
+
   function cacheCards(cards) {
     Store.cachePrintingFacts(cards);
     for (const f of cards) {
@@ -60,16 +100,18 @@ const Workbench = (() => {
     loadPromise = (async () => {
       loading = true; redraw();
       try { local = !!(await api('status', undefined, 3000)).local; } catch (_) { local = false; }
-      if (custom) adopt(custom);
-      else if (local) { try { adopt(await api('vault')); } catch (e) { note = e.message; adopt(browserCollection()); } }
-      else { adopt(browserCollection()); note = 'Browser collection mode. Start tools/workbench-server.js for the saved ManaBox baseline, allocation ledger, exact purchase quotes and in-app Spellbook results.'; }
+      const requested=collectionMode;
+      collectionMode=collectionMode || (local?'local':'browser');
+      try {await useCollectionSource(collectionMode);}
+      catch(e){if(!requested){collectionMode='browser';adopt(browserCollection());note=e.message;}else{collectionError=e.message;note=e.message;}}
+
       initialized = true; loading = false; redraw();
-      hydrate();
+      if(visible())hydrate();
     })();
     return loadPromise;
   }
   async function hydrate(refresh = false, onlyNames, printingId) {
-    if (hydrating) { for (const n of onlyNames || []) if (!fact(n)) pendingNames.add(n); if(printingId)pendingPrintings.add(printingId); return; }
+    if (hydrating) { if(!onlyNames&&!printingId)pendingFullHydration=true; for (const n of onlyNames || []) if (!fact(n)) pendingNames.add(n); if(printingId)pendingPrintings.add(printingId); return; }
     const version = inventoryVersion;
     const ids = new Map();
     if (!onlyNames) for (const r of snapshot?.records || []) { if (r.scryfallId) ids.set(r.scryfallId, { id: r.scryfallId }); else ids.set(C.key(r.name), { name: r.name }); }
@@ -98,7 +140,8 @@ const Workbench = (() => {
       }
     } catch (e) { note = 'Card indexing paused: ' + e.message + ' Cards without facts remain visible; effect filters cover indexed cards only.'; }
     finally { hydrating = false; busy = ''; if (hydrationErrors.length) note = hydrationErrors.length + ' printing(s) could not be resolved. Try refreshing, or inspect the collection export.'; redraw();
-      if (pendingNames.size || pendingPrintings.size) { const next = [...pendingNames]; pendingNames.clear(); hydrate(false,next); }
+      if(pendingFullHydration){pendingFullHydration=false;pendingNames.clear();hydrate();}
+      else if (pendingNames.size || pendingPrintings.size) { const next = [...pendingNames]; pendingNames.clear(); hydrate(false,next); }
     }
   }
   function change(fn) {
@@ -136,7 +179,7 @@ const Workbench = (() => {
   const price = P.cents;
   function status() { return `<span>${esc(busy || (initialized ? catalog.length.toLocaleString() + ' names · ' + catalog.filter(c => c.fact).length.toLocaleString() + ' indexed' : 'Opening your vault…'))}</span>${note ? `<span class="wb-notice">${esc(note)}</span>` : ''}`; }
   function shell() {
-    return `<section class="wb" aria-label="Collection Workbench"><header class="wb-heading"><div><h1>Collection Workbench</h1><p>Build with what you have. See what works together.</p></div><div class="wb-actions"><button class="btn" data-wb="open">Open deck</button><button class="btn" data-wb="import">Import decklist</button><button class="btn primary" data-wb="new">New deck</button><button class="btn" data-wb="backup">Backup</button></div></header>
+    return `<section class="wb" aria-label="Collection Workbench"><header class="wb-heading"><div><h1>Collection Workbench</h1><p>Build with what you have. See what works together.</p></div><div class="wb-actions"><button class="btn" data-collection-add>Add cards to collection</button><button class="btn" data-wb="open">Open deck</button><button class="btn" data-wb="import">Import decklist</button><button class="btn primary" data-wb="new">New deck</button><button class="btn" data-wb="backup">Backup</button></div></header>
     <div class="wb-source"><span class="wb-dot"></span><strong>${esc(sourceLabel())}</strong><span>${(snapshot?.records || []).reduce((s, r) => s + (r.proxy ? 0 : r.quantity), 0).toLocaleString()} paper copies</span><span>${ledger.decks.length} protected decks</span><span>${snapshot?.importedAt ? 'Imported ' + new Date(snapshot.importedAt).toLocaleDateString() : ''}</span><button data-wb="collection" class="wb-link">Collection & allocations</button></div>
     <div id="wb-status" class="wb-status" role="status" aria-live="polite">${status()}</div>
     <div class="wb-mobile-jumps" aria-label="Workbench sections"><button class="btn small" data-wb="jump" data-id="filters">Find cards</button><button class="btn small" data-wb="jump" data-id="library">Binder</button><button class="btn small" data-wb="jump" data-id="deck">Deck</button></div><div class="wb-layout"><aside class="wb-filters${mobileFiltersOpen?' wb-filters-open':''}" aria-label="Card filters">${filterHtml()}</aside><section class="wb-library"><div class="wb-tabs" role="tablist" aria-label="Workbench views">${[['library','Your binder'],['deck-art','Deck art'],['shopping','Collection check'],['interactions','Interactions']].map(([id,label]) => `<button role="tab" aria-selected="${tab === id}" data-wb="tab" data-id="${id}">${label}</button>`).join('')}</div><div id="wb-library-body">${libraryBody()}</div></section><aside class="wb-deck" aria-label="Deck editor">${deckHtml()}</aside></div></section>`;
@@ -302,9 +345,9 @@ const Workbench = (() => {
     showDialog('Open a deck',`<h3>Workbench drafts</h3><div class="wb-open-list">${drafts.filter(d=>!d.archived).map(d=>`<div class="wb-open-row"><button class="btn" data-wb="draft" data-id="${esc(d.id)}">${esc(d.name)} <span>${d.cards.reduce((s,c)=>s+c.q,0)} cards</span></button><button class="wb-link" data-wb="archive-draft" data-id="${esc(d.id)}">Archive</button></div>`).join('')}<details><summary>Archived drafts (${drafts.filter(d=>d.archived).length})</summary>${drafts.filter(d=>d.archived).map(d=>`<button class="btn" data-wb="restore-draft" data-id="${esc(d.id)}">Restore ${esc(d.name)}</button>`).join('')}</details></div><h3>Protected deck binders</h3><p>Open a working copy and use its own cards. The allocation ledger remains unchanged.</p><div class="wb-open-list">${ledger.decks.map(d=>`<button class="btn" data-wb="binder-deck" data-id="${esc(d.id)}">${esc(d.name)}${d.status==='inferred'?' (inferred)':''}</button>`).join('')}</div><h3>Existing Aether Vault decks</h3><div class="wb-open-list">${Store.state.userdecks.map(d=>`<button class="btn" data-wb="legacy-deck" data-id="${esc(d.id)}">${esc(d.name)}</button>`).join('')||'<p>No saved decks in this browser origin. Restore an Aether Vault backup on the Data page to bring them here.</p>'}</div>`);
   }
   function collectionDialog() {
-    showDialog('Collection & allocations',`<p><strong>${esc(sourceLabel())}</strong> · ${(snapshot?.records||[]).length.toLocaleString()} printing rows</p><p>Only named free binders and the selected target deck count as available. Drafts do not reserve physical cards.</p><h3>Free binders</h3><p>${esc(ledger.availableBinders.join(', ')||'None')}</p><h3>Protected decks</h3><ul>${ledger.decks.map(d=>`<li>${esc(d.name)} · ${esc(d.mode)} · ${esc(d.status||'recorded')}</li>`).join('')}</ul><h3>Needs classification</h3><p>${esc((audit.unclassifiedBinders||[]).join(', ')||'No unclassified binders reported.')}</p>${audit.conflicts?.length?'<p class="wb-notice">Allocation conflicts exist. Review your ledger before buying or moving cards.</p>':''}${audit.missingBinders?.length?`<p class="wb-notice">Missing binders: ${esc(audit.missingBinders.join(', '))}</p>`:''}<p class="wb-help">Allocation changes use the existing mtg deck-save workflow. Inferred assignments remain labeled. Uploading a CSV here creates a Workbench override; it does not replace your archived baseline.</p><label class="wb-field">Load a ManaBox CSV into Workbench<input id="wb-collection-file" type="file" accept=".csv,text/csv"${local?'':' disabled'}></label><div class="wb-actions"><button class="btn" data-wb="baseline"${local?'':' disabled'}>Use saved baseline</button><button class="btn" data-wb="backup">Download Workbench backup</button></div><label class="wb-field">Restore Workbench backup<input id="wb-restore" type="file" accept=".json,application/json"></label>`);
-    dialog.querySelector('#wb-collection-file').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{busy='Validating ManaBox export…';const v=await api('import-collection',{csv:await file.text(),name:file.name});custom=v;adopt(v);persist();closeDialog();note='Workbench collection replaced. Existing decks and the archived baseline are unchanged.';redraw();await hydrate();}catch(err){note=err.message;redrawStatus();}finally{busy='';redrawStatus();}};
-    dialog.querySelector('#wb-restore').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const v=JSON.parse(await file.text());validateBackup(v);download('aether-workbench-before-restore.json',{app:'aether-workbench',version:1,drafts,active:draft.id,custom});drafts=v.drafts;draft=drafts.find(d=>d.id===v.active)||drafts[0];custom=v.custom||null;if(custom)adopt(custom);else if(local)adopt(await api('vault'));else adopt(browserCollection());undo=[];report=null;comboResult=null;comboError='';comboGeneration++;persist();closeDialog();redraw();await hydrate();}catch(err){note='Restore failed: '+err.message;redrawStatus();}};
+    showDialog('Collection & allocations',`<p><strong>${esc(sourceLabel())}</strong> · ${(snapshot?.records||[]).length.toLocaleString()} printing rows</p><p>Only named free binders and the selected target deck count as available. Drafts do not reserve physical cards.</p><h3>Free binders</h3><p>${esc(ledger.availableBinders.join(', ')||'None')}</p><h3>Protected decks</h3><ul>${ledger.decks.map(d=>`<li>${esc(d.name)} · ${esc(d.mode)} · ${esc(d.status||'recorded')}</li>`).join('')}</ul><h3>Needs classification</h3><p>${esc((audit.unclassifiedBinders||[]).join(', ')||'No unclassified binders reported.')}</p>${audit.conflicts?.length?'<p class="wb-notice">Allocation conflicts exist. Review your ledger before buying or moving cards.</p>':''}${audit.missingBinders?.length?`<p class="wb-notice">Missing binders: ${esc(audit.missingBinders.join(', '))}</p>`:''}<p class="wb-help">Allocation changes use the existing mtg deck-save workflow. Inferred assignments remain labeled. Uploading a CSV here creates a Workbench override; it does not replace your archived baseline.</p><label class="wb-field">Load a ManaBox CSV into Workbench<input id="wb-collection-file" type="file" accept=".csv,text/csv"${local?'':' disabled'}></label><div class="wb-actions"><button class="btn" data-wb="baseline"${local?'':' disabled'}>Use collection on this computer</button><button class="btn" data-wb="backup">Download Workbench backup</button></div><label class="wb-field">Restore Workbench backup<input id="wb-restore" type="file" accept=".json,application/json"></label>`);
+    dialog.querySelector('#wb-collection-file').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{busy='Validating ManaBox export…';const v=await api('import-collection',{csv:await file.text(),name:file.name});custom=v;persist();await useCollectionSource('custom');closeDialog();note='Workbench collection replaced. Existing decks and the archived baseline are unchanged.';redraw();await hydrate();}catch(err){note=err.message;redrawStatus();}finally{busy='';redrawStatus();}};
+    dialog.querySelector('#wb-restore').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const v=JSON.parse(await file.text());validateBackup(v);download('aether-workbench-before-restore.json',{app:'aether-workbench',version:1,drafts,active:draft.id,custom});drafts=v.drafts;draft=drafts.find(d=>d.id===v.active)||drafts[0];custom=v.custom||null;await useCollectionSource(custom?'custom':local?'local':'browser');undo=[];report=null;comboResult=null;comboError='';comboGeneration++;persist();closeDialog();redraw();await hydrate();}catch(err){note='Restore failed: '+err.message;redrawStatus();}};
   }
   function validateBackup(v) {
     if(v?.app!=='aether-workbench'||v.version!==1||!Array.isArray(v.drafts)||!v.drafts.length||v.drafts.length>200)throw Error('Not a supported Workbench backup.');
@@ -327,7 +370,7 @@ const Workbench = (() => {
     const cards=coverage().map(c=>({name:c.n,quantity:c.q,finish:document.getElementById('wb-quote-finish')?.value||'normal'}));
     const fingerprint=JSON.stringify(draft), version=inventoryVersion;
     busy='Starting live printing comparison…';redraw();
-    try{const job=await api('quote',{expectedHash:snapshot.sha256,plan:{cards,targetDeckId:draft.targetDeckId||undefined},...(custom||!local?{snapshot,ledger}:{})});let j;
+    try{const job=await api('quote',{expectedHash:A.revision(snapshot),plan:{cards,targetDeckId:draft.targetDeckId||undefined},...(collectionMode!=='local'?{snapshot,ledger}:{})});let j;
       do{await new Promise(r=>setTimeout(r,1500));j=await api('jobs/'+job.id);busy=`Pricing ${j.completed || 0} / ${j.total || cards.length} names; comparing all printings…`;redrawStatus();}while(j.status==='running');
       if(j.status==='error')throw Error(j.error);
       if(fingerprint!==JSON.stringify(draft)||version!==inventoryVersion){note='The deck changed during pricing. Refresh the quote for the current deck.';}else{report=j.result;note='Live purchase quote updated.';}
@@ -391,7 +434,7 @@ const Workbench = (() => {
       if(action==='apply-import'){const parsed=C.parseDeck(dialog.querySelector('#wb-import-text').value);if(parsed.errors.length||!parsed.cards.length)return;const format=dialog.querySelector('#wb-import-format').value;change(()=>{draft.cards=parsed.cards;C.setFormat(draft,format);filters.fit=false;addZone='main';});closeDialog();return hydrate(false,draft.cards.map(c=>c.n));}
       if(action==='backup')return download('aether-workbench-backup.json',{app:'aether-workbench',version:1,drafts,active:draft.id,custom});
       if(action==='collection')return collectionDialog();
-      if(action==='baseline'){if(hydrating)throw Error('Wait for card indexing to finish before switching collection.');custom=null;adopt(await api('vault'));persist();closeDialog();redraw();return hydrate();}
+      if(action==='baseline'){if(hydrating)throw Error('Wait for card indexing to finish before switching collection.');await useCollectionSource('local');closeDialog();redraw();return hydrate();}
       if(action==='export')return download(draft.name.replace(/[^a-z0-9 -]/gi,'')+'.txt',C.deckText(draft),'text/plain');
       if(action==='save-legacy'){
         const cmds=draft.cards.filter(c=>c.zone==='commander');if(cmds.length>1)throw Error('The existing Decks page supports one commander. Keep this paired-commander deck in Workbench or export it.');
@@ -456,6 +499,6 @@ const Workbench = (() => {
   }
   function render() { if(!inventory)rebuild();return shell(); }
   function openStored(id) {const d=Store.userDeck(id);if(d)openNew({...blank(),...C.fromStoredDeck(d),name:d.name+' · working copy'});}
-  function mount(root) {bind(root);init().then(()=>{const id=new URLSearchParams(location.hash.split('?')[1]||'').get('deck');if(id&&visible()){history.replaceState(null,'','#/workbench');openStored(id);}});}
-  return { render, mount, close:closeDialog, validateBackup };
+  function mount(root) {bind(root);init().then(()=>{if(visible())hydrate();const id=new URLSearchParams(location.hash.split('?')[1]||'').get('deck');if(id&&visible()){history.replaceState(null,'','#/workbench');openStored(id);}});}
+  return { render, mount, close:closeDialog, validateBackup, prepareCollection:init, collectionContext, collectionSources, useCollectionSource, addToCollection };
 })();

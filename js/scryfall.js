@@ -131,5 +131,24 @@ const Scry = (() => {
     return out;
   }
 
-  return { img, pricesByIds, resolveNames, cardById, cardByName, fullCards };
+  async function searchPrintings(name,set='',page=1) {
+    name=String(name).trim();set=String(set).trim();
+    if(name.length<2||name.length>120)throw Error('Enter a card name between 2 and 120 characters.');
+    if(set&&!/^[a-z0-9]{2,10}$/i.test(set))throw Error('Use the short set code, such as LTR or FDN.');
+    if(!Number.isInteger(page)||page<1)throw Error('Invalid search page.');
+    const q='name:'+JSON.stringify(name)+' game:paper lang:en'+(set?' set:'+set:'');
+    const params=new URLSearchParams({q,unique:'prints',order:'released',dir:'desc',page:String(page)});
+    for(let attempt=0;attempt<3;attempt++) {
+      await throttled('get');
+      const r=await fetch(API+'/cards/search?'+params,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(20000)});
+      if(r.status===404)return {data:[],has_more:false,total_cards:0};
+      if((r.status===429||r.status>=500)&&attempt<2){await sleep(1000*(attempt+1));continue;}
+      const result=await r.json();
+      if(!r.ok)throw Error(result.details || 'Scryfall search failed. Try again.');
+      if(!Array.isArray(result.data))throw Error('Scryfall returned an unreadable search result.');
+      if(result.warnings?.length)throw Error(result.warnings.join(' '));
+      return {...result,data:result.data.filter(c=>c.games?.includes('paper')).map(c=>({...c,_fetchedAt:new Date().toISOString()}))};
+    }
+  }
+  return { img, pricesByIds, resolveNames, cardById, cardByName, fullCards, searchPrintings };
 })();

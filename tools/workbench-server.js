@@ -7,6 +7,8 @@ const crypto = require('node:crypto');
 const { makeApi, quote, importCollection } = require('./mtg');
 const { effectivePlan, allocationAudit, validateAllocations } = require('./mtg-allocations');
 const Spellbook = require('./spellbook');
+const Additions = require('../js/collection-additions');
+const { commit: commitAdditions } = require('./collection-additions');
 const ROOT = path.resolve(__dirname, '..');
 const read = p => JSON.parse(fs.readFileSync(p, 'utf8'));
 function createServer({ vaultRoot = ROOT, cacheRoot = path.join(ROOT, 'knowledge/cache/workbench'), port = 8787, api = makeApi(), comboFind = Spellbook.find } = {}) {
@@ -20,7 +22,7 @@ function createServer({ vaultRoot = ROOT, cacheRoot = path.join(ROOT, 'knowledge
   function saveFacts() { fs.mkdirSync(cacheRoot, { recursive: true }); const tmp = cacheFile + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(facts)); fs.renameSync(tmp, cacheFile); }
   const baseline = () => ({ snapshot: read(path.join(vaultRoot, 'knowledge/collection/latest.json')), ledger: read(path.join(vaultRoot, 'knowledge/collection/allocations.json')) });
   function context(body) {
-    if (!body.snapshot) { const v=baseline();if(body.expectedHash && body.expectedHash!==v.snapshot.sha256)throw Error('The saved collection changed. Use Collection & allocations → Use saved baseline, then quote again.');return v; }
+    if (!body.snapshot) { const v=baseline();if(body.expectedHash && body.expectedHash!==Additions.revision(v.snapshot))throw Error('The saved collection changed. Refresh the active collection, then quote again.');return v; }
     const s = body.snapshot;
     if (s.schemaVersion !== 1 || !Array.isArray(s.records) || s.records.length > 50000 || s.records.some(r => typeof r.name !== 'string' || !r.name.trim() || !Number.isSafeInteger(r.quantity) || r.quantity < 1 || typeof r.proxy !== 'boolean' || typeof r.binder !== 'string' || typeof r.binderType !== 'string')) throw Error('Invalid collection snapshot');
     validateAllocations(body.ledger); return { snapshot: s, ledger: body.ledger };
@@ -39,6 +41,31 @@ function createServer({ vaultRoot = ROOT, cacheRoot = path.join(ROOT, 'knowledge
       const url = new URL(req.url, 'http://' + host), p = url.pathname;
       if (p === '/api/workbench/status' && req.method === 'GET') return reply(res, 200, { app: 'aether-vault-workbench', local: true, version: 1 });
       if (p === '/api/workbench/vault' && req.method === 'GET') { const v = baseline(); return reply(res, 200, { ...v, audit: allocationAudit(v.ledger, v.snapshot) }); }
+      if (p === '/api/workbench/collection-add' && req.method === 'POST') {
+        if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) return reply(res,415,{error:'JSON content type required'});
+        const b=await body(req), initial=baseline();
+        validateAllocations(initial.ledger);
+        allocationAudit(initial.ledger,initial.snapshot);
+        const checked=Additions.receipt(initial.snapshot,b.requestId,b.entries);
+        if(checked.old)return reply(res,200,{...initial,added:checked.old.quantity,replayed:true,audit:allocationAudit(initial.ledger,initial.snapshot)});
+        if(b.expectedRevision!==Additions.revision(initial.snapshot))return reply(res,409,{error:'The collection changed. Refresh the collection and review your queue before saving again.'});
+        const ids=[...new Set(checked.normalized.map(e=>e.id))], cards=[];
+        // Validate every printing before committing anything. Never accept client prices or names.
+        for(let i=0;i<ids.length;i+=75){
+          const r=await serial(()=>api('/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:ids.slice(i,i+75).map(id=>({id}))})}));
+          if(!Array.isArray(r.data)||r.not_found?.length)throw Error('A printing could not be verified. Search for that edition again.');
+          cards.push(...r.data.map(c=>({...c,_fetchedAt:new Date().toISOString()})));
+        }
+        const result=commitAdditions(vaultRoot,b.entries,cards,{requestId:b.requestId,expectedRevision:b.expectedRevision});
+        const ledger=initial.ledger;
+        for(const c of cards){
+          const day=c._fetchedAt.slice(0,10),previous=facts[c.id]?._priceHistory||[];
+          c._priceHistory=[...previous.filter(p=>p.date!==day),{date:day,prices:c.prices}].slice(-90);
+          facts[c.id]=c;facts[c.name.toLowerCase()]=c;for(const face of c.card_faces||[])facts[face.name.toLowerCase()]=c;
+        }
+        try{saveFacts();}catch(_){/* Ownership is committed; return verified facts even if the optional cache is full. */}
+        return reply(res,200,{...result,ledger,audit:allocationAudit(ledger,result.snapshot),cards});
+      }
       if (p === '/api/workbench/facts' && req.method === 'POST') {
         const b = await body(req);
         if (!Array.isArray(b.identifiers) || b.identifiers.length > 75 || b.identifiers.some(x => !(typeof x.name === 'string' && x.name.length <= 256) && !(typeof x.id === 'string' && /^[a-f0-9-]{36}$/i.test(x.id)))) throw Error('Use at most 75 card identifiers');

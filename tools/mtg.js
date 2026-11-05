@@ -261,7 +261,7 @@ async function quote(plan, snapshot, api = makeApi()) {
   const sum = field => lines.reduce((s, l) => s + (l[field] ?? 0), 0);
   return { schemaVersion: 1, generatedAt: new Date().toISOString(), currency: 'USD',
     source: 'Scryfall current API reference prices; not verified retailer inventory or checkout quotes',
-    inventory: { source: snapshot.source, sha256: snapshot.sha256, importedAt: snapshot.importedAt },
+    inventory: { source: snapshot.source, sha256: snapshot.sha256, revision: snapshot.revision, updatedAt: snapshot.updatedAt, importedAt: snapshot.importedAt },
     assumptions: { excludedBinderTypes: plan.excludedBinderTypes || ['deck'], excludeBinders: plan.excludeBinders || [], reserved: plan.reserved || [],
       allocationContext: plan.allocationContext || null,
       purchaseSelection: 'Lowest priced English paper printing in requested finish; owned cards count across finishes',

@@ -52,9 +52,20 @@ const Store = (() => {
   function touch() { state.dirty++; }
 
   // ---------- collection ----------
-  function rows() { return state.mycollection ? state.mycollection.rows : []; }
-  function hasCollection() { return !!state.mycollection; }
-  function collectionLabel() { return state.mycollection ? state.mycollection.label : 'No collection loaded'; }
+  let collectionView=null;
+  function rows() { return (collectionView || state.mycollection)?.rows || []; }
+  function hasCollection() { return !!(collectionView || state.mycollection); }
+  function collectionLabel() { return (collectionView || state.mycollection)?.label || 'No collection loaded'; }
+  // A local inventory view is deliberately excluded from legacy GitHub sync/backup state.
+  function setCollectionView(snapshot,label) {
+    collectionView=snapshot?{label,rows:window.CollectionAdditions.toRows(snapshot)}:null;buildIndexes();
+  }
+  function reloadBrowserCollection() {state.mycollection=load(LS.mycollection,null);buildIndexes();}
+  function saveCollectionSnapshot(snapshot) {
+    const next={...(state.mycollection||{}),label:state.mycollection?.label||'My collection',uploaded:state.mycollection?.uploaded||new Date().toISOString(),revision:snapshot.revision,additions:snapshot.additions,rows:window.CollectionAdditions.toRows(snapshot)};
+    localStorage.setItem(LS.mycollection,JSON.stringify(next)); // fail before changing live ownership
+    state.mycollection=next;collectionView=null;buildIndexes();touch();
+  }
 
   let byName = {};
   function buildIndexes() {
@@ -62,7 +73,7 @@ const Store = (() => {
     for (const r of rows()) {
       const k = norm(r.n);
       byName[k] ||= { name: r.n, qty: 0, sid: r.sid, binders: new Set(), foil: false };
-      byName[k].qty += r.q;
+      byName[k].qty += r.proxy ? 0 : r.q;
       byName[k].binders.add(r.b);
       if (r.f) byName[k].foil = true;
       if (!byName[k].sid && r.sid) byName[k].sid = r.sid;
@@ -118,8 +129,9 @@ const Store = (() => {
       const p={id:f.id,set:f.set,set_name:f.set_name,collector_number:f.collector_number,full_art:f.full_art,border_color:f.border_color,frame:f.frame,frame_effects:f.frame_effects,promo_types:f.promo_types,textless:f.textless,_fetchedAt:f._fetchedAt};
       for(const [finish,field] of [['normal','usd'],['foil','usd_foil'],['etched','usd_etched']]){const cents=P.cents(f,finish);p[field]=cents==null?null:cents/100;}
       state.prices[f.id]=p;changed=true;
+      if(f.name&&f.type_line)state.resolved[f.name.toLowerCase()]={name:f.name,sid:f.id,t:f.type_line,o:(f.oracle_text??(f.card_faces||[]).map(c=>c.oracle_text||'').join(' // ')).toLowerCase(),mc:f.mana_cost||'',mv:f.cmc||0,ci:(f.color_identity||[]).join(''),oracle_id:f.oracle_id,legalities:f.legalities,layout:f.layout,...p};
     }
-    if(changed)save(LS.prices,state.prices);
+    if(changed){save(LS.prices,state.prices);save(LS.resolved,state.resolved);}
   }
   function unitPrice(n, sid, finish) { return knownCardValue(n,sid,finish) ?? 0; }
   function rowValue(r) { return unitPrice(r.n, r.sid, r.f) * r.q; }
@@ -158,7 +170,7 @@ const Store = (() => {
     const S = typeof window !== 'undefined' && window.VAULT_SETS;
     if (!S) return null;
     const hit = setProgressCache[mode];
-    if (hit && hit.rowsRef === state.mycollection) return hit.value;
+    if (hit && hit.rowsRef === (collectionView || state.mycollection)) return hit.value;
     let value;
     if (mode === 'cards') {
       const SC = typeof window !== 'undefined' && window.VAULT_SETCARDS;
@@ -203,7 +215,7 @@ const Store = (() => {
       out.sort((a, b) => b.pct - a.pct || b.owned - a.owned);
       value = { sets: out, uniqueOwned: allPrints.size, uniqueTotal: totalPrints, mode };
     }
-    setProgressCache[mode] = { rowsRef: state.mycollection, value };
+    setProgressCache[mode] = { rowsRef: collectionView || state.mycollection, value };
     return value;
   }
 
@@ -402,6 +414,7 @@ const Store = (() => {
         f: idx['Foil'] != null && r[idx['Foil']] && r[idx['Foil']] !== 'normal' ? r[idx['Foil']] : '',
         q: parseInt(r[idx['Quantity']], 10) || 1,
         sid: idx['Scryfall ID'] != null ? (r[idx['Scryfall ID']] || '') : '',
+        language: r[idx['Language']] || 'en', condition: r[idx['Condition']] || 'near_mint', proxy: String(r[idx['Proxy']] || '').toLowerCase()==='true',
       });
     }
     if (!out.length) throw new Error('No card rows found in that file.');
@@ -656,7 +669,7 @@ const Store = (() => {
 
   return {
     state, norm, card, sidFor,
-    rows, hasCollection, collectionLabel, get byName() { return byName; }, deckOf,
+    rows, hasCollection, collectionLabel, setCollectionView, saveCollectionSnapshot, reloadBrowserCollection, get byName() { return byName; }, deckOf,
     unitPrice, rowValue, cardValue, knownCardValue, knownDeckCardValue, cachePrintingFacts, collectionTotal, priceAge, ticker, collectionTicker, setProgress, setTier, nextTier, collectorTitle, ownsName,
     userDeck, deckFormat, deckCards, createUserDeck, deleteUserDeck, renameUserDeck, setUserCommander, setUserFormat,
     addToUserDeck, setUserQty, userDeckTotal, deckView, allDeckRefs, deckNameFor,
